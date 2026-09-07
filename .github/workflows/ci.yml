@@ -57,7 +57,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwayland-dev pkg-config build-essential \
-            sway weston dbus-x11
+            sway weston dbus-x11 zenity xwayland x11-apps
       - name: Build
         run: cargo build
 
@@ -86,38 +86,28 @@ jobs:
       - name: Launch clients and verify focus tracking
         run: |
           export WLR_BACKENDS=headless
-          # 以 wayland-1 优先（sway 通常新开一个 socket），回退到 wayland-0
           for s in wayland-1 wayland-0; do
             if [ -S "$XDG_RUNTIME_DIR/$s" ]; then export WAYLAND_DISPLAY=$s; break; fi
           done
           echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
 
-          echo "=== available wayland client binaries ==="
-          for b in foot footclient weston-flower weston-clickdot weston-info zenity yad; do
-            command -v "$b" >/dev/null 2>&1 && echo "found: $b"
-          done
-          echo "=== fonts (fc-list head) ==="
-          fc-list 2>/dev/null | head -3 || echo "fc-list not available or no fonts"
-
-          echo "=== try foot in background, keep log ==="
-          nohup foot > /tmp/foot1.log 2>&1 &
-          FOOT1=$!
+          # 无 GPU 的 runner 上，依赖 EGL 的客户端（foot / weston-flower）
+          # 进程存活但永远不会 map 窗口。改用两类保证能出窗口的客户端：
+          #   1) zenity —— GTK，cairo/SHM 软渲染，Wayland 原生 toplevel
+          #   2) xeyes  —— X11 客户端，经 XWayland 变成 Wayland toplevel
+          GDK_BACKEND=wayland nohup zenity --info --text=win1 --title=win1 > /tmp/zenity1.log 2>&1 &
           sleep 5
-          if kill -0 $FOOT1 2>/dev/null; then echo "foot1: RUNNING"; else echo "foot1: EXITED"; fi
-          cat /tmp/foot1.log || true
+          GDK_BACKEND=wayland nohup zenity --info --text=win2 --title=win2 > /tmp/zenity2.log 2>&1 &
+          sleep 5
+          DISPLAY=:0 nohup xeyes > /tmp/xeyes.log 2>&1 &
+          sleep 5
 
-          echo "=== try weston-flower, keep log ==="
-          if command -v weston-flower >/dev/null 2>&1; then
-            nohup weston-flower > /tmp/flower.log 2>&1 &
-            sleep 5
-            cat /tmp/flower.log || true
-          else
-            echo "weston-flower not installed"
-          fi
+          for f in /tmp/zenity1.log /tmp/zenity2.log /tmp/xeyes.log; do
+            echo "--- $f ---"; tail -3 "$f" 2>/dev/null || true
+          done
 
-          echo "=== full tree (first 3000 chars) ==="
-          swaymsg -t get_tree 2>&1 | head -c 3000
-          echo
+          echo "=== swaymsg tree (app_id list) ==="
+          swaymsg -t get_tree 2>&1 | grep -o '"app_id":"[^"]*"' | sort -u || true
 
           timeout 25 ./target/debug/focusd watch > /tmp/focusd.out 2>&1 &
           FD_PID=$!
