@@ -125,6 +125,7 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for State {
     ) {
         match event {
             zwlr_foreign_toplevel_manager_v1::Event::Toplevel { toplevel } => {
+                log::debug!("toplevel 事件: 新窗口 {:?}，加入跟踪", toplevel.id());
                 state.toplevels.insert(toplevel.id(), Toplevel::default());
             }
             zwlr_foreign_toplevel_manager_v1::Event::Finished => {
@@ -156,11 +157,13 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for State {
 
         match event {
             zwlr_foreign_toplevel_handle_v1::Event::AppId { app_id } => {
+                log::debug!("handle {:?} app_id={:?}", id, app_id);
                 if let Some(t) = state.toplevels.get_mut(&id) {
                     t.app_id = Some(app_id);
                 }
             }
             zwlr_foreign_toplevel_handle_v1::Event::Title { title } => {
+                log::debug!("handle {:?} title={:?}", id, title);
                 if let Some(t) = state.toplevels.get_mut(&id) {
                     t.title = Some(title);
                 }
@@ -169,20 +172,28 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for State {
                 // state 是 array<uint32>，Rust 绑定给的是原始字节。
                 // as_chunks::<4>() 切出完整的 4 字节块，不足一块的尾段归入 remainder
                 // （正常情况为空，协议保证按 uint32 对齐）。
+                log::debug!("handle {:?} state 原始字节: {:02x?}", id, raw);
                 let (chunks, _remainder) = raw.as_chunks::<4>();
                 let activated = chunks
                     .iter()
                     .any(|&c| u32::from_ne_bytes(c) == STATE_ACTIVATED);
+                log::debug!("handle {:?} activated={}", id, activated);
                 if let Some(t) = state.toplevels.get_mut(&id) {
                     t.activated = activated;
                 }
             }
             zwlr_foreign_toplevel_handle_v1::Event::Closed => {
+                log::debug!("handle {:?} closed", id);
                 state.toplevels.remove(&id);
                 state.emit_if_changed();
             }
             // done 表示这批属性已发送完毕，是统一的提交点。
             zwlr_foreign_toplevel_handle_v1::Event::Done => {
+                log::debug!(
+                    "handle {:?} done; current={:?}",
+                    id,
+                    state.current().map(|f| f.app_id)
+                );
                 state.emit_if_changed();
             }
             _ => {}

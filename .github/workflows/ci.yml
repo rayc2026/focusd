@@ -106,7 +106,7 @@ jobs:
           echo "=== swaymsg tree (app_id list) ==="
           swaymsg -t get_tree 2>&1 | grep -o '"app_id":"[^"]*"' | sort -u || true
 
-          timeout 25 ./target/debug/focusd watch > /tmp/focusd.out 2>&1 &
+          timeout 25 env RUST_LOG=debug ./target/debug/focusd watch > /tmp/focusd.out 2>&1 &
           FD_PID=$!
           sleep 4
           swaymsg focus right 2>&1 || true
