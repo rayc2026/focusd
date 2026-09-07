@@ -39,24 +39,39 @@ struct State {
 }
 
 impl State {
-    /// 建一个 SHM buffer：/dev/shm 下临时文件写入纯色像素后立即 unlink，
-    /// fd 依然有效（tmpfs），wl_shm 可正常 mmap。
-    ///
-    /// 注意：libwayland 在 flush 时才真正发送 fd——因此原 File 必须 move 进
-    /// keep_alive 保持 fd 打开到进程结束，否则 compositor 收到已关闭的 fd，
-    /// 报 "Protocol error 2 (invalid_size) / Failed to create memory mapping"。
+    /// 建一个 SHM buffer：memfd_create 匿名内存 + 纯色像素。
+    /// 不用 /dev/shm 文件——GitHub runner 上实测 mmap 失败（Protocol
+    /// error 2 / invalid_size），memfd 是 X11/Wayland 生态的标准做法。
     fn create_buffer(&mut self, qh: &QueueHandle<Self>) -> wl_buffer::WlBuffer {
-        let path = format!("/dev/shm/focusd-dummy-{}.shm", std::process::id());
-        let mut f =
-            File::create(&path).expect("dummy-window: 无法在 /dev/shm 创建临时文件");
+        use std::os::fd::FromRawFd;
+        use std::io::{Seek, SeekFrom};
+
+        let name = b"focusd-dummy\0";
+        let fd = unsafe {
+            libc::memfd_create(name.as_ptr() as *const libc::c_char, 0)
+        };
+        let mut f = unsafe { File::from_raw_fd(fd) };
+        f.set_len((W * H * 4) as u64)
+            .expect("dummy-window: memfd set_len 失败");
+        f.seek(SeekFrom::Start(0))
+            .expect("dummy-window: memfd seek 失败");
+
         let pixel: u32 = 0xFF_AA_66_44; // XRGB8888
         let mut data = Vec::with_capacity((W * H * 4) as usize);
         for _ in 0..(W * H) {
             data.extend_from_slice(&pixel.to_ne_bytes());
         }
-        f.write_all(&data).expect("dummy-window: 写入 SHM 数据失败");
-        let _ = std::fs::remove_file(&path);
-        // f 仍存活：create_pool 借用其 fd；随后 move 进 keep_alive 保命
+        let written = f
+            .write_all(&data)
+            .expect("dummy-window: 写入 SHM 数据失败");
+        f.flush().expect("dummy-window: flush 失败");
+        let real_size = f.metadata().map(|m| m.len()).unwrap_or(0);
+        eprintln!(
+            "dummy: memfd ready size={} pool_size={}",
+            real_size,
+            W * H * 4
+        );
+
         let pool = self
             .shm
             .create_pool(f.as_fd(), W * H * 4, qh, ());

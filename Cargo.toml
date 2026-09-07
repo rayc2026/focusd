@@ -16,6 +16,7 @@ anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
 clap = { version = "4", features = ["derive"] }
+libc = "0.2"
 
 # 第二阶段引入（D-Bus 接口）
 # zbus = "4"
