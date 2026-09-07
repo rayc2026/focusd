@@ -4,7 +4,7 @@ use std::sync::mpsc::Sender;
 use anyhow::{Context, Result};
 use wayland_client::{
     backend::ObjectId,
-    globals::registry_queue_init,
+    globals::{registry_queue_init, GlobalListContents},
     protocol::wl_registry,
     Connection, Dispatch, Proxy, QueueHandle,
 };
@@ -98,12 +98,14 @@ impl Backend for WlrootsBackend {
 }
 
 // ---- registry：不做处理，global 绑定已在 run() 中通过 globals.bind 完成 ----
-impl Dispatch<wl_registry::WlRegistry, ()> for State {
+// 注意：UserData 必须是 GlobalListContents 而非 ()，
+// 这是 registry_queue_init 的 trait bound 要求，与自行 bind 的 global 不同。
+impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for State {
     fn event(
         _state: &mut Self,
         _proxy: &wl_registry::WlRegistry,
         _event: wl_registry::Event,
-        _data: &(),
+        _data: &GlobalListContents,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
