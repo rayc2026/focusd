@@ -41,6 +41,10 @@ struct State {
 impl State {
     /// 建一个 SHM buffer：/dev/shm 下临时文件写入纯色像素后立即 unlink，
     /// fd 依然有效（tmpfs），wl_shm 可正常 mmap。
+    ///
+    /// 注意：libwayland 在 flush 时才真正发送 fd——因此原 File 必须 move 进
+    /// keep_alive 保持 fd 打开到进程结束，否则 compositor 收到已关闭的 fd，
+    /// 报 "Protocol error 2 (invalid_size) / Failed to create memory mapping"。
     fn create_buffer(&mut self, qh: &QueueHandle<Self>) -> wl_buffer::WlBuffer {
         let path = format!("/dev/shm/focusd-dummy-{}.shm", std::process::id());
         let mut f =
@@ -52,11 +56,14 @@ impl State {
         }
         f.write_all(&data).expect("dummy-window: 写入 SHM 数据失败");
         let _ = std::fs::remove_file(&path);
-        self.keep_alive.push(f.try_clone().expect("dummy-window: clone fd 失败"));
+        // f 仍存活：create_pool 借用其 fd；随后 move 进 keep_alive 保命
         let pool = self
             .shm
             .create_pool(f.as_fd(), W * H * 4, qh, ());
-        pool.create_buffer(0, W, H, W * 4, wl_shm::Format::Xrgb8888, qh, ())
+        let buf =
+            pool.create_buffer(0, W, H, W * 4, wl_shm::Format::Xrgb8888, qh, ());
+        self.keep_alive.push(f);
+        buf
     }
 }
 

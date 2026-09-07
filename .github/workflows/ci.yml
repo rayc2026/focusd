@@ -58,8 +58,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwayland-dev pkg-config build-essential \
             sway dbus-x11
-      - name: Build (with examples)
-        run: cargo build --examples
+      - name: Build (bins + examples)
+        run: cargo build --bins --examples
 
       - name: Start headless Sway
         run: |
