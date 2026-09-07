@@ -82,9 +82,12 @@ fn main() -> Result<()> {
         }
     }
 
+    eprintln!("dummy: connecting...");
     let conn = Connection::connect_to_env().context("无法连接 Wayland display")?;
+    eprintln!("dummy: connected");
     let (_globals, mut event_queue) = registry_queue_init(&conn)?;
     let qh = event_queue.handle();
+    eprintln!("dummy: initial roundtrip done");
 
     let mut state = State {
         running: true,
@@ -100,6 +103,13 @@ fn main() -> Result<()> {
         keep_alive: Vec::new(),
     };
 
+    eprintln!(
+        "dummy: globals after roundtrip: compositor={} shm={} wm_base={}",
+        state.compositor.is_some(),
+        state.shm.is_some(),
+        state.wm_base.is_some(),
+    );
+
     // registry_queue_init 已做过一次 roundtrip，globals 已进入 state
     let compositor = state
         .compositor
@@ -113,11 +123,13 @@ fn main() -> Result<()> {
     let surface = compositor.create_surface(&qh, ());
     let xdg_surface = wm_base.get_xdg_surface(&surface, &qh, ());
     let toplevel = xdg_surface.get_toplevel(&qh, ());
+    eprintln!("dummy: surface / xdg_surface / toplevel created");
 
     // app_id 必须在首次 commit 前设置，否则 compositor 会用空值
     toplevel.set_app_id(state.app_id.clone());
     toplevel.set_title(state.title.clone());
     surface.commit();
+    eprintln!("dummy: committed, entering dispatch loop (waiting for configure)");
 
     state.surface = Some(surface);
     state.xdg_surface = Some(xdg_surface);
@@ -142,6 +154,7 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for State {
         qh: &QueueHandle<Self>,
     ) {
         if let wl_registry::Event::Global { name, interface, version } = event {
+            eprintln!("dummy: global {} v{} (name {})", interface, version, name);
             match interface.as_str() {
                 "wl_compositor" => {
                     state.compositor = Some(registry.bind(name, version.min(4), qh, ()));
@@ -185,6 +198,7 @@ impl Dispatch<xdg_surface::XdgSurface, ()> for State {
         qh: &QueueHandle<Self>,
     ) {
         if let xdg_surface::Event::Configure { serial } = event {
+            eprintln!("dummy: got configure (serial {}), acking", serial);
             xdg_surface.ack_configure(serial);
             if !state.configured_once {
                 state.configured_once = true;

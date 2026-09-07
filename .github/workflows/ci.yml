@@ -94,9 +94,10 @@ jobs:
           # 无 GPU 的 runner 上，EGL 系客户端（foot/weston-flower/zenity）
           # 进程存活但永远不 map 窗口。改用自带的 dummy-window：
           # 纯 wl_shm 提交，无任何 GPU 依赖。
-          nohup ./target/debug/examples/dummy-window --app-id focusd.win1 --title one > /tmp/w1.log 2>&1 &
+          # timeout 20：若 20s 内没走到 mapped（未收到 configure），僵尸退出。
+          nohup timeout 20 ./target/debug/examples/dummy-window --app-id focusd.win1 --title one > /tmp/w1.log 2>&1 &
           sleep 3
-          nohup ./target/debug/examples/dummy-window --app-id focusd.win2 --title two > /tmp/w2.log 2>&1 &
+          nohup timeout 20 ./target/debug/examples/dummy-window --app-id focusd.win2 --title two > /tmp/w2.log 2>&1 &
           sleep 3
 
           echo "--- w1.log ---"; cat /tmp/w1.log || true
