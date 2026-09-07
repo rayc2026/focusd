@@ -1,0 +1,21 @@
+[package]
+name = "focusd"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-compositor focused-application detection for Wayland"
+license = "MIT OR Apache-2.0"
+
+# 注意：本项目只能在 Linux 上构建（依赖 libwayland-client）。
+# Windows / macOS 上 cargo build 会失败，这是预期行为。
+
+[dependencies]
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+clap = { version = "4", features = ["derive"] }
+
+# 第二阶段引入（D-Bus 接口）
+# zbus = "4"
+# tokio = { version = "1", features = ["full"] }
