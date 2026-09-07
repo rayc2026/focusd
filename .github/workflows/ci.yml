@@ -92,13 +92,20 @@ jobs:
           done
           echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
 
-          nohup weston-terminal >/dev/null 2>&1 &
-          sleep 2
-          nohup weston-terminal >/dev/null 2>&1 &
-          sleep 3
+          # 用 swaymsg exec 启动客户端：sway 会为子进程设置正确的
+          # WAYLAND_DISPLAY / dbus 环境，比手工 nohup 可靠。
+          # foot 是 sway 生态标准终端，已随 sway 作为推荐依赖安装。
+          # （上一轮 weston-terminal 进程存活但从未创建窗口，故弃用。）
+          swaymsg exec foot
+          sleep 4
+          swaymsg exec foot
+          sleep 4
 
           echo "=== swaymsg tree (app_id list) ==="
           swaymsg -t get_tree 2>&1 | grep -o '"app_id":"[^"]*"' | sort -u || true
+          echo "=== tree preview ==="
+          swaymsg -t get_tree 2>&1 | head -c 800 || true
+          echo
 
           timeout 25 ./target/debug/focusd watch > /tmp/focusd.out 2>&1 &
           FD_PID=$!
