@@ -75,6 +75,11 @@ jobs:
           done
           echo "=== available wayland sockets ==="
           ls -1 "$XDG_RUNTIME_DIR"/wayland-* 2>&1 || true
+          # swaymsg 走的是 sway 自己的 IPC socket，不是 WAYLAND_DISPLAY，
+          # 必须显式导出，否则报 "Unable to retrieve socket path"。
+          SWAYSOCK=$(ls -1 "$XDG_RUNTIME_DIR"/sway-ipc.*.sock 2>/dev/null | head -1)
+          echo "SWAYSOCK=$SWAYSOCK" >> $GITHUB_ENV
+          echo "sway IPC socket: ${SWAYSOCK:-<not found>}"
           echo "=== sway log ==="
           tail -20 /tmp/sway.log 2>&1 || true
 

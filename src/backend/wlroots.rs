@@ -4,6 +4,7 @@ use std::sync::mpsc::Sender;
 use anyhow::{Context, Result};
 use wayland_client::{
     backend::ObjectId,
+    event_created_child,
     globals::{registry_queue_init, GlobalListContents},
     protocol::wl_registry,
     Connection, Dispatch, Proxy, QueueHandle,
@@ -132,6 +133,13 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for State {
             _ => {}
         }
     }
+
+    // toplevel 事件（opcode 0）会创建新的 ZwlrForeignToplevelHandleV1 对象，
+    // 必须在这里声明它的 UserData，否则 wayland-client 会 panic：
+    // "Missing event_created_child specialization for event opcode 0"
+    event_created_child!(State, ZwlrForeignToplevelManagerV1, [
+        0 => (ZwlrForeignToplevelHandleV1, ()),
+    ]);
 }
 
 // ---- handle：窗口属性与激活状态 ----
