@@ -1,5 +1,7 @@
 # focusd
 
+[![CI](https://github.com/rayc2026/focusd/actions/workflows/ci.yml/badge.svg)](https://github.com/rayc2026/focusd/actions/workflows/ci.yml)
+
 Wayland 下的**焦点应用探测**守护进程 —— 回答一个本该有标准答案、但在 Wayland 上至今没有的问题：
 
 > 现在用户正在用哪个应用？
@@ -44,6 +46,17 @@ Wayland 下的**焦点应用探测**守护进程 —— 回答一个本该有标
 - ✅ 去重（只在焦点真正变化时推送）
 - ❌ D-Bus 接口（第二阶段）
 - ❌ GNOME / KDE 后端（第二阶段）
+
+### 已验证 / 未验证
+
+| 项目 | 状态 |
+|---|---|
+| 代码可编译（Linux / stable Rust） | ✅ CI 通过 |
+| `cargo clippy -D warnings` 零告警 | ✅ CI 通过 |
+| 无 Wayland 环境下 `probe` 优雅退出而非崩溃 | ✅ CI 通过 |
+| **真机连接 wlroots compositor 并输出焦点变化** | ❌ **尚未验证**——需要真实 wlroots 会话 |
+
+最后一项是 MVP 真正的验证目标，当前只有你能跑。见下方环境章节。
 
 ## 环境要求
 
