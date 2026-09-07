@@ -31,7 +31,6 @@ struct State {
     running: bool,
     shm: wl_shm::WlShm,
     surface: wl_surface::WlSurface,
-    xdg_surface: xdg_surface::XdgSurface,
     configured_once: bool,
     app_id: String,
     /// create_pool 传的是 BorrowedFd，libwayland 要在 flush 时才把 fd
@@ -109,7 +108,6 @@ fn main() -> Result<()> {
         running: true,
         shm,
         surface,
-        xdg_surface,
         configured_once: false,
         app_id,
         keep_alive: Vec::new(),
