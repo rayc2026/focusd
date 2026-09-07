@@ -92,19 +92,31 @@ jobs:
           done
           echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
 
-          # 用 swaymsg exec 启动客户端：sway 会为子进程设置正确的
-          # WAYLAND_DISPLAY / dbus 环境，比手工 nohup 可靠。
-          # foot 是 sway 生态标准终端，已随 sway 作为推荐依赖安装。
-          # （上一轮 weston-terminal 进程存活但从未创建窗口，故弃用。）
-          swaymsg exec foot
-          sleep 4
-          swaymsg exec foot
-          sleep 4
+          echo "=== available wayland client binaries ==="
+          for b in foot footclient weston-flower weston-clickdot weston-info zenity yad; do
+            command -v "$b" >/dev/null 2>&1 && echo "found: $b"
+          done
+          echo "=== fonts (fc-list head) ==="
+          fc-list 2>/dev/null | head -3 || echo "fc-list not available or no fonts"
 
-          echo "=== swaymsg tree (app_id list) ==="
-          swaymsg -t get_tree 2>&1 | grep -o '"app_id":"[^"]*"' | sort -u || true
-          echo "=== tree preview ==="
-          swaymsg -t get_tree 2>&1 | head -c 800 || true
+          echo "=== try foot in background, keep log ==="
+          nohup foot > /tmp/foot1.log 2>&1 &
+          FOOT1=$!
+          sleep 5
+          if kill -0 $FOOT1 2>/dev/null; then echo "foot1: RUNNING"; else echo "foot1: EXITED"; fi
+          cat /tmp/foot1.log || true
+
+          echo "=== try weston-flower, keep log ==="
+          if command -v weston-flower >/dev/null 2>&1; then
+            nohup weston-flower > /tmp/flower.log 2>&1 &
+            sleep 5
+            cat /tmp/flower.log || true
+          else
+            echo "weston-flower not installed"
+          fi
+
+          echo "=== full tree (first 3000 chars) ==="
+          swaymsg -t get_tree 2>&1 | head -c 3000
           echo
 
           timeout 25 ./target/debug/focusd watch > /tmp/focusd.out 2>&1 &
