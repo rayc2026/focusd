@@ -61,8 +61,7 @@ impl State {
         for _ in 0..(W * H) {
             data.extend_from_slice(&pixel.to_ne_bytes());
         }
-        let written = f
-            .write_all(&data)
+        f.write_all(&data)
             .expect("dummy-window: 写入 SHM 数据失败");
         f.flush().expect("dummy-window: flush 失败");
         let real_size = f.metadata().map(|m| m.len()).unwrap_or(0);
