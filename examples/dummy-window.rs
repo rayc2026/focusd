@@ -11,7 +11,7 @@
 
 use std::fs::File;
 use std::io::Write;
-use std::os::fd::OwnedFd;
+use std::os::fd::AsFd;
 
 use anyhow::{Context, Result};
 use wayland_client::{
@@ -37,12 +37,15 @@ struct State {
     configured_once: bool,
     app_id: String,
     title: String,
+    /// create_pool 传的是 BorrowedFd，libwayland 要在 flush 时才把 fd
+    /// 写进 socket，所以 File 必须保持存活到进程结束。
+    keep_alive: Vec<File>,
 }
 
 impl State {
     /// 建一个 SHM buffer：/dev/shm 下临时文件写入纯色像素后立即 unlink，
     /// fd 依然有效（tmpfs），wl_shm 可正常 mmap。
-    fn create_buffer(&self, qh: &QueueHandle<Self>) -> Option<wl_buffer::WlBuffer> {
+    fn create_buffer(&mut self, qh: &QueueHandle<Self>) -> Option<wl_buffer::WlBuffer> {
         let shm = self.shm.as_ref()?;
         let path = format!("/dev/shm/focusd-dummy-{}.shm", std::process::id());
         let mut f = File::create(&path).ok()?;
@@ -53,8 +56,8 @@ impl State {
         }
         f.write_all(&data).ok()?;
         let _ = std::fs::remove_file(&path);
-        let fd: OwnedFd = f.into();
-        let pool = shm.create_pool(fd, W * H * 4, qh, ());
+        self.keep_alive.push(f.try_clone().ok()?);
+        let pool = shm.create_pool(f.as_fd(), W * H * 4, qh, ());
         Some(pool.create_buffer(
             0,
             W,
@@ -94,6 +97,7 @@ fn main() -> Result<()> {
         configured_once: false,
         app_id,
         title,
+        keep_alive: Vec::new(),
     };
 
     // registry_queue_init 已做过一次 roundtrip，globals 已进入 state
@@ -216,6 +220,30 @@ impl Dispatch<xdg_toplevel::XdgToplevel, ()> for State {
 }
 
 // ---- 其余对象的空实现 ----
+impl Dispatch<wl_compositor::WlCompositor, ()> for State {
+    fn event(
+        _state: &mut Self,
+        _proxy: &wl_compositor::WlCompositor,
+        _event: wl_compositor::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<wl_shm::WlShm, ()> for State {
+    fn event(
+        _state: &mut Self,
+        _proxy: &wl_shm::WlShm,
+        _event: wl_shm::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
 impl Dispatch<wl_surface::WlSurface, ()> for State {
     fn event(
         _state: &mut Self,
