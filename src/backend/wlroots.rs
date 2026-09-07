@@ -159,9 +159,11 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for State {
             }
             zwlr_foreign_toplevel_handle_v1::Event::State { state: raw } => {
                 // state 是 array<uint32>，Rust 绑定给的是原始字节。
-                // 不足 4 字节的尾段会被 array_chunks 丢弃，符合预期。
-                let activated = raw
-                    .array_chunks::<4>()
+                // as_chunks::<4>() 切出完整的 4 字节块，不足一块的尾段归入 remainder
+                // （正常情况为空，协议保证按 uint32 对齐）。
+                let (chunks, _remainder) = raw.as_chunks::<4>();
+                let activated = chunks
+                    .iter()
                     .any(|&c| u32::from_ne_bytes(c) == STATE_ACTIVATED);
                 if let Some(t) = state.toplevels.get_mut(&id) {
                     t.activated = activated;
