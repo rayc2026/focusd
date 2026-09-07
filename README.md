@@ -54,9 +54,9 @@ Wayland 下的**焦点应用探测**守护进程 —— 回答一个本该有标
 | 代码可编译（Linux / stable Rust） | ✅ CI 通过 |
 | `cargo clippy -D warnings` 零告警 | ✅ CI 通过 |
 | 无 Wayland 环境下 `probe` 优雅退出而非崩溃 | ✅ CI 通过 |
-| **真机连接 wlroots compositor 并输出焦点变化** | ❌ **尚未验证**——需要真实 wlroots 会话 |
+| **连接 wlroots compositor 并捕获焦点切换** | ✅ **CI 集成测试通过**：headless Sway + 两个 `dummy-window`（app_id `focusd.win1/2`），`swaymsg focus` 切换，focusd 全程捕获 app_id 变化 |
 
-最后一项是 MVP 真正的验证目标，当前只有你能跑。见下方环境章节。
+集成测试细节见 `.github/workflows/ci.yml` 的 `integration` job：wlroots 支持 `WLR_BACKENDS=headless`，可在无显示环境跑真·compositor；测试客户端用自带的 `examples/dummy-window`（纯 wl_shm + memfd，无 GPU/EGL 依赖——foot / weston-flower / zenity 等 EGL 系客户端在无显卡 runner 上进程存活但永远不 map 窗口，故弃用）。
 
 ## 环境要求
 
