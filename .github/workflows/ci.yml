@@ -57,9 +57,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwayland-dev pkg-config build-essential \
-            sway weston dbus-x11 zenity xwayland x11-apps
-      - name: Build
-        run: cargo build
+            sway dbus-x11
+      - name: Build (with examples)
+        run: cargo build --examples
 
       - name: Start headless Sway
         run: |
@@ -91,20 +91,16 @@ jobs:
           done
           echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
 
-          # 无 GPU 的 runner 上，依赖 EGL 的客户端（foot / weston-flower）
-          # 进程存活但永远不会 map 窗口。改用两类保证能出窗口的客户端：
-          #   1) zenity —— GTK，cairo/SHM 软渲染，Wayland 原生 toplevel
-          #   2) xeyes  —— X11 客户端，经 XWayland 变成 Wayland toplevel
-          GDK_BACKEND=wayland nohup zenity --info --text=win1 --title=win1 > /tmp/zenity1.log 2>&1 &
-          sleep 5
-          GDK_BACKEND=wayland nohup zenity --info --text=win2 --title=win2 > /tmp/zenity2.log 2>&1 &
-          sleep 5
-          DISPLAY=:0 nohup xeyes > /tmp/xeyes.log 2>&1 &
-          sleep 5
+          # 无 GPU 的 runner 上，EGL 系客户端（foot/weston-flower/zenity）
+          # 进程存活但永远不 map 窗口。改用自带的 dummy-window：
+          # 纯 wl_shm 提交，无任何 GPU 依赖。
+          nohup ./target/debug/examples/dummy-window --app-id focusd.win1 --title one > /tmp/w1.log 2>&1 &
+          sleep 3
+          nohup ./target/debug/examples/dummy-window --app-id focusd.win2 --title two > /tmp/w2.log 2>&1 &
+          sleep 3
 
-          for f in /tmp/zenity1.log /tmp/zenity2.log /tmp/xeyes.log; do
-            echo "--- $f ---"; tail -3 "$f" 2>/dev/null || true
-          done
+          echo "--- w1.log ---"; cat /tmp/w1.log || true
+          echo "--- w2.log ---"; cat /tmp/w2.log || true
 
           echo "=== swaymsg tree (app_id list) ==="
           swaymsg -t get_tree 2>&1 | grep -o '"app_id":"[^"]*"' | sort -u || true
@@ -122,6 +118,14 @@ jobs:
           cat /tmp/focusd.out
           echo "=== line count ==="
           wc -l < /tmp/focusd.out
+
+          echo "=== assertion ==="
+          if grep -q "focusd.win" /tmp/focusd.out; then
+            echo "VERIFIED: focusd 捕获到了焦点切换"
+          else
+            echo "NOT VERIFIED: focusd 输出中没有预期的 app_id"
+            exit 1
+          fi
 
   # 冒烟测试：确认二进制能启动且在没有 wlroots compositor 时给出明确的错误提示，
   # 而不是崩溃或静默挂起。
