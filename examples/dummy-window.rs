@@ -4,6 +4,9 @@
 //! 因此在 GitHub Actions 这类无显卡的 runner 上也能保证 map 出窗口。
 //! （实测 foot / weston-flower / zenity 在该环境下进程存活但永远不 map。）
 //!
+//! 要点：globals 必须从 `registry_queue_init` 返回的 `GlobalList` 上 bind，
+//! Global 事件不会经过 State 的 Dispatch——这是本工具踩过的坑。
+//!
 //! 用法：
 //! ```text
 //! dummy-window --app-id focusd.win1 [--title 标题]
@@ -15,10 +18,8 @@ use std::os::fd::AsFd;
 
 use anyhow::{Context, Result};
 use wayland_client::{
-    globals::{registry_queue_init, GlobalListContents},
-    protocol::{
-        wl_buffer, wl_compositor, wl_registry, wl_shm, wl_shm_pool, wl_surface,
-    },
+    globals::registry_queue_init,
+    protocol::{wl_buffer, wl_compositor, wl_registry, wl_shm, wl_shm_pool, wl_surface},
     Connection, Dispatch, QueueHandle,
 };
 use wayland_protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
@@ -28,15 +29,11 @@ const H: i32 = 64;
 
 struct State {
     running: bool,
-    compositor: Option<wl_compositor::WlCompositor>,
-    shm: Option<wl_shm::WlShm>,
-    wm_base: Option<xdg_wm_base::XdgWmBase>,
-    surface: Option<wl_surface::WlSurface>,
-    xdg_surface: Option<xdg_surface::XdgSurface>,
-    toplevel: Option<xdg_toplevel::XdgToplevel>,
+    shm: wl_shm::WlShm,
+    surface: wl_surface::WlSurface,
+    xdg_surface: xdg_surface::XdgSurface,
     configured_once: bool,
     app_id: String,
-    title: String,
     /// create_pool 传的是 BorrowedFd，libwayland 要在 flush 时才把 fd
     /// 写进 socket，所以 File 必须保持存活到进程结束。
     keep_alive: Vec<File>,
@@ -45,28 +42,22 @@ struct State {
 impl State {
     /// 建一个 SHM buffer：/dev/shm 下临时文件写入纯色像素后立即 unlink，
     /// fd 依然有效（tmpfs），wl_shm 可正常 mmap。
-    fn create_buffer(&mut self, qh: &QueueHandle<Self>) -> Option<wl_buffer::WlBuffer> {
-        let shm = self.shm.as_ref()?;
+    fn create_buffer(&mut self, qh: &QueueHandle<Self>) -> wl_buffer::WlBuffer {
         let path = format!("/dev/shm/focusd-dummy-{}.shm", std::process::id());
-        let mut f = File::create(&path).ok()?;
+        let mut f =
+            File::create(&path).expect("dummy-window: 无法在 /dev/shm 创建临时文件");
         let pixel: u32 = 0xFF_AA_66_44; // XRGB8888
         let mut data = Vec::with_capacity((W * H * 4) as usize);
         for _ in 0..(W * H) {
             data.extend_from_slice(&pixel.to_ne_bytes());
         }
-        f.write_all(&data).ok()?;
+        f.write_all(&data).expect("dummy-window: 写入 SHM 数据失败");
         let _ = std::fs::remove_file(&path);
-        self.keep_alive.push(f.try_clone().ok()?);
-        let pool = shm.create_pool(f.as_fd(), W * H * 4, qh, ());
-        Some(pool.create_buffer(
-            0,
-            W,
-            H,
-            W * 4,
-            wl_shm::Format::Xrgb8888,
-            qh,
-            (),
-        ))
+        self.keep_alive.push(f.try_clone().expect("dummy-window: clone fd 失败"));
+        let pool = self
+            .shm
+            .create_pool(f.as_fd(), W * H * 4, qh, ());
+        pool.create_buffer(0, W, H, W * 4, wl_shm::Format::Xrgb8888, qh, ())
     }
 }
 
@@ -85,40 +76,23 @@ fn main() -> Result<()> {
     eprintln!("dummy: connecting...");
     let conn = Connection::connect_to_env().context("无法连接 Wayland display")?;
     eprintln!("dummy: connected");
-    let (_globals, mut event_queue) = registry_queue_init(&conn)?;
+    let (globals, mut event_queue) = registry_queue_init(&conn)?;
     let qh = event_queue.handle();
     eprintln!("dummy: initial roundtrip done");
 
-    let mut state = State {
-        running: true,
-        compositor: None,
-        shm: None,
-        wm_base: None,
-        surface: None,
-        xdg_surface: None,
-        toplevel: None,
-        configured_once: false,
-        app_id,
-        title,
-        keep_alive: Vec::new(),
-    };
-
-    eprintln!(
-        "dummy: globals after roundtrip: compositor={} shm={} wm_base={}",
-        state.compositor.is_some(),
-        state.shm.is_some(),
-        state.wm_base.is_some(),
-    );
-
-    // registry_queue_init 已做过一次 roundtrip，globals 已进入 state
-    let compositor = state
-        .compositor
-        .clone()
+    // 关键：globals 必须从 GlobalList 上 bind。
+    // Global 事件不会经过 State 的 Dispatch<WlRegistry>——那里的 impl
+    // 只是 registry_queue_init 的 trait bound 要求，事件由内部 handler 消费。
+    let compositor: wl_compositor::WlCompositor = globals
+        .bind(&qh, 1..=4, ())
         .context("compositor 未提供 wl_compositor")?;
-    let wm_base = state
-        .wm_base
-        .clone()
+    let shm: wl_shm::WlShm = globals
+        .bind(&qh, 1..=1, ())
+        .context("compositor 未提供 wl_shm")?;
+    let wm_base: xdg_wm_base::XdgWmBase = globals
+        .bind(&qh, 1..=1, ())
         .context("compositor 未提供 xdg_wm_base")?;
+    eprintln!("dummy: globals bound (wl_compositor / wl_shm / xdg_wm_base)");
 
     let surface = compositor.create_surface(&qh, ());
     let xdg_surface = wm_base.get_xdg_surface(&surface, &qh, ());
@@ -126,14 +100,20 @@ fn main() -> Result<()> {
     eprintln!("dummy: surface / xdg_surface / toplevel created");
 
     // app_id 必须在首次 commit 前设置，否则 compositor 会用空值
-    toplevel.set_app_id(state.app_id.clone());
-    toplevel.set_title(state.title.clone());
+    toplevel.set_app_id(app_id.clone());
+    toplevel.set_title(title);
     surface.commit();
     eprintln!("dummy: committed, entering dispatch loop (waiting for configure)");
 
-    state.surface = Some(surface);
-    state.xdg_surface = Some(xdg_surface);
-    state.toplevel = Some(toplevel);
+    let mut state = State {
+        running: true,
+        shm,
+        surface,
+        xdg_surface,
+        configured_once: false,
+        app_id,
+        keep_alive: Vec::new(),
+    };
 
     while state.running {
         event_queue
@@ -143,31 +123,19 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-// ---- registry: 收集 globals ----
-impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for State {
+// ---- registry: 事件由 registry_queue_init 的内部 handler 消费，此实现
+// ---- 仅满足 trait bound，正常情况下不会收到事件。
+impl Dispatch<wl_registry::WlRegistry, wayland_client::globals::GlobalListContents>
+    for State
+{
     fn event(
-        state: &mut Self,
-        registry: &wl_registry::WlRegistry,
-        event: wl_registry::Event,
-        _data: &GlobalListContents,
+        _state: &mut Self,
+        _proxy: &wl_registry::WlRegistry,
+        _event: wl_registry::Event,
+        _data: &wayland_client::globals::GlobalListContents,
         _conn: &Connection,
-        qh: &QueueHandle<Self>,
+        _qh: &QueueHandle<Self>,
     ) {
-        if let wl_registry::Event::Global { name, interface, version } = event {
-            eprintln!("dummy: global {} v{} (name {})", interface, version, name);
-            match interface.as_str() {
-                "wl_compositor" => {
-                    state.compositor = Some(registry.bind(name, version.min(4), qh, ()));
-                }
-                "wl_shm" => {
-                    state.shm = Some(registry.bind(name, version.min(1), qh, ()));
-                }
-                "xdg_wm_base" => {
-                    state.wm_base = Some(registry.bind(name, version.min(1), qh, ()));
-                }
-                _ => {}
-            }
-        }
     }
 }
 
@@ -198,20 +166,14 @@ impl Dispatch<xdg_surface::XdgSurface, ()> for State {
         qh: &QueueHandle<Self>,
     ) {
         if let xdg_surface::Event::Configure { serial } = event {
-            eprintln!("dummy: got configure (serial {}), acking", serial);
+            eprintln!("dummy: got configure (serial {}), mapping", serial);
             xdg_surface.ack_configure(serial);
             if !state.configured_once {
                 state.configured_once = true;
-                if let Some(surface) = state.surface.clone() {
-                    if let Some(buf) = state.create_buffer(qh) {
-                        surface.attach(Some(&buf), 0, 0);
-                    }
-                    surface.commit();
-                    eprintln!(
-                        "dummy-window: mapped (app_id={})",
-                        state.app_id
-                    );
-                }
+                let buf = state.create_buffer(qh);
+                state.surface.attach(Some(&buf), 0, 0);
+                state.surface.commit();
+                eprintln!("dummy: mapped (app_id={})", state.app_id);
             }
         }
     }
@@ -234,30 +196,6 @@ impl Dispatch<xdg_toplevel::XdgToplevel, ()> for State {
 }
 
 // ---- 其余对象的空实现 ----
-impl Dispatch<wl_compositor::WlCompositor, ()> for State {
-    fn event(
-        _state: &mut Self,
-        _proxy: &wl_compositor::WlCompositor,
-        _event: wl_compositor::Event,
-        _data: &(),
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-    }
-}
-
-impl Dispatch<wl_shm::WlShm, ()> for State {
-    fn event(
-        _state: &mut Self,
-        _proxy: &wl_shm::WlShm,
-        _event: wl_shm::Event,
-        _data: &(),
-        _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-    ) {
-    }
-}
-
 impl Dispatch<wl_surface::WlSurface, ()> for State {
     fn event(
         _state: &mut Self,
