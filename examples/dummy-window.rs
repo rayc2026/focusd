@@ -196,6 +196,30 @@ impl Dispatch<xdg_toplevel::XdgToplevel, ()> for State {
 }
 
 // ---- 其余对象的空实现 ----
+impl Dispatch<wl_compositor::WlCompositor, ()> for State {
+    fn event(
+        _state: &mut Self,
+        _proxy: &wl_compositor::WlCompositor,
+        _event: wl_compositor::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<wl_shm::WlShm, ()> for State {
+    fn event(
+        _state: &mut Self,
+        _proxy: &wl_shm::WlShm,
+        _event: wl_shm::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+    }
+}
+
 impl Dispatch<wl_surface::WlSurface, ()> for State {
     fn event(
         _state: &mut Self,
