@@ -157,12 +157,13 @@ fn cmd_serve(backend_hint: Option<&str>) -> Result<()> {
         );
         // blocking::Connection::emit_signal 是 zbus 5 的同步发射路径，
         // 与架构图的 SignalContext + emit 等效（同一 signal 消息）。
+        // body 传 (&str, &str) 而非 (String, String)：避免 move 后日志再用
         if let Err(e) = conn.emit_signal(
             None::<&str>,
             dbus::PATH,
             dbus::IFACE_FOCUS,
             "FocusChanged",
-            &(app_id, title),
+            &(&app_id, &title),
         ) {
             log::warn!("FocusChanged 信号发射失败: {e}");
         } else {
