@@ -19,6 +19,8 @@ pub struct Focus {
 ///
 /// `run` 是阻塞的：后端自己持有事件循环，通过 channel 把焦点变化推给调用方。
 /// 这样上层（CLI / D-Bus 服务）不需要知道底层是 wlroots、GNOME 还是 KWin。
+///
+/// Send 上界：后端实例会被 move 进后台线程跑事件循环。
 pub trait Backend: Send {
     /// 机器可读标识，取值 "wlroots" | "kde" | "gnome"。
     /// 供 `--backend <id>` 参数与自动探测顺序使用。
@@ -34,12 +36,22 @@ pub trait Backend: Send {
     fn run(&self, tx: std::sync::mpsc::Sender<Focus>) -> anyhow::Result<()>;
 }
 
+/// D-Bus 空串 ↔ `Focus` 的 `None` 互转约定：KWin 脚本 / GNOME 扩展对
+/// "无焦点窗口"发空串，内部统一用 `Option` 表达；
+/// 序列化回 D-Bus（GetFocus）时 `None` 再变回空串（docs/dbus.md 有说明）。
+pub fn empty_to_none(s: &str) -> Option<String> {
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
 /// 主循环去重辅助（serve / watch 共用）。
 ///
-/// 后端允许在内部做去重优化（如 wlroots 的 emit_if_changed），
+/// 后端允许在内部做去重优化（如 GNOME 轮询的同值重发），
 /// 但对外的语义正确性由这里保证：只有与上一次快照真正不同才放行。
-/// 把去重收敛到主循环一处，是为了 D-Bus 信号不重复发射——
-/// KWin 推送与 GNOME 轮询路径都可能出现同值重发。
+/// 把去重收敛到主循环一处，是为了 D-Bus 信号不重复发射。
 #[derive(Debug, Default)]
 pub struct Dedup {
     last: Option<Focus>,
@@ -79,5 +91,11 @@ mod tests {
         assert_eq!(d.install(f1_same), None);
         // 真正变化才放行
         assert_eq!(d.install(f2.clone()), Some(f2.clone()));
+    }
+
+    #[test]
+    fn empty_to_none_空串映射为none() {
+        assert_eq!(empty_to_none(""), None);
+        assert_eq!(empty_to_none("firefox"), Some("firefox".to_string()));
     }
 }
