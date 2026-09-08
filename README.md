@@ -136,6 +136,11 @@ unit 依赖 `graphical-session.target`，随图形会话启停。
 完整 XML 签名、busctl/gdbus 用例、空串与 None 的约定、
 未来迁移 `io.github.rayc2026.focusd` 的说明：见 **[docs/dbus.md](docs/dbus.md)**。
 
+想在自己的工具里消费焦点数据（Solaar / logiops / OpenLogi）？
+**[docs/integration-guide.md](docs/integration-guide.md)** 提供
+Python/GLib、Rust/zbus、Shell 三种语言的先查后听示例、对接检查清单、
+以及 OpenLogi（per-app profile）与 Solaar 的具体接入建议。
+
 ## 架构与扩展指南
 
 ### 架构一页图
@@ -249,7 +254,7 @@ GNOME 需要跑 Shell 扩展、KDE 需要跑 KWin Script，它们的事件模型
 - [x] **阶段二**：D-Bus 接口 `org.focusd.Focus1`（`GetFocus()` + `FocusChanged`）+ 集成 gate 转正
 - [x] **阶段三**：KDE KWin Script 后端（真机验证清单待执行）
 - [x] **阶段四**：GNOME Shell Extension 后端（真机验证清单待执行）
-- [ ] **阶段五**：对接 OpenLogi / Solaar，解决它们「按应用切换配置」在 Wayland 上的缺口
+- [ ] **阶段五**：对接 OpenLogi / Solaar，解决它们「按应用切换配置」在 Wayland 上的缺口（对接指南已就绪：[docs/integration-guide.md](docs/integration-guide.md)；待 GNOME/KDE 真机验证通过后发起社区对接）
 
 ## 已知限制
 
