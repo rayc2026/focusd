@@ -59,6 +59,12 @@ jobs:
       - name: Build (bins + examples)
         run: cargo build --bins --examples
 
+      # 单测 + 契约 mock 测试（tests/*.rs）需要会话总线（zbus 起服务/客户端），
+      # 用 dbus-run-session 包住。build job 里没跑 cargo test——unit tests
+      # 不依赖 bus 的部分在此一并覆盖。
+      - name: Unit & contract tests (inside session bus)
+        run: dbus-run-session cargo test
+
       - name: Start headless Sway
         run: |
           mkdir -p ~/.config/sway
