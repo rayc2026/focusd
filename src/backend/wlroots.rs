@@ -18,7 +18,11 @@ use super::selector::{probe_wlroots, RealProbe};
 use super::{Backend, Focus};
 
 /// zwlr_foreign_toplevel_handle_v1.state 里 activated 的枚举值。
-const STATE_ACTIVATED: u32 = 1;
+/// 协议定义：maximized=0、minimized=1、activated=2。之前误写成 1
+/// （恰好是 minimized），导致 activated 永远检测不到——而旧 CI 断言
+/// 又因 RUST_LOG=debug 的日志行里恰好含 app_id 字样而假绿；
+/// gate 转正 + serve 的 GetFocus 断言把这个 bug 暴露了出来。
+const STATE_ACTIVATED: u32 = 2;
 
 #[derive(Default)]
 struct Toplevel {
