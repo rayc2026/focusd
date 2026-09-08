@@ -36,6 +36,7 @@ impl ProbeContext for RealProbe {
     fn bus_has_owner(&self, name: &str) -> bool {
         // 每次新建连接：probe 是启动期一次性调用，不值得为此常驻连接。
         // 连接失败（无 DBUS_SESSION_BUS_ADDRESS 等）一律视为不在线。
+        // 注意各层错误类型不同（zbus::Error / zbus::fdo::Error），用 match 而非 and_then。
         let conn = match zbus::blocking::Connection::session() {
             Ok(c) => c,
             Err(e) => {
@@ -43,12 +44,20 @@ impl ProbeContext for RealProbe {
                 return false;
             }
         };
-        zbus::blocking::fdo::DBusProxy::new(&conn)
-            .and_then(|p| p.name_has_owner(name.to_string()))
-            .unwrap_or_else(|e| {
+        let proxy = match zbus::blocking::fdo::DBusProxy::new(&conn) {
+            Ok(p) => p,
+            Err(e) => {
+                log::debug!("probe: 创建 DBus 代理失败（{e}），视为 {name} 不在线");
+                return false;
+            }
+        };
+        match proxy.name_has_owner(name) {
+            Ok(v) => v,
+            Err(e) => {
                 log::debug!("probe: name_has_owner({name}) 失败（{e}），视为不在线");
                 false
-            })
+            }
+        }
     }
 }
 

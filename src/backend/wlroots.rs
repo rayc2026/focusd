@@ -64,8 +64,17 @@ impl State {
 pub struct WlrootsBackend;
 
 impl Backend for WlrootsBackend {
+    fn id(&self) -> &'static str {
+        "wlroots"
+    }
+
     fn name(&self) -> &'static str {
         "wlroots (zwlr-foreign-toplevel-management-unstable-v1)"
+    }
+
+    fn probe(&self) -> Result<()> {
+        // 探测逻辑抽成纯函数放 selector（环境可注入），这里只是转发。
+        probe_wlroots(&RealProbe)
     }
 
     fn run(&self, tx: Sender<Focus>) -> Result<()> {
@@ -78,7 +87,7 @@ impl Backend for WlrootsBackend {
 
         // TODO(协议版本协商)：固定绑定 3..=3，未做协商（主理人裁定 4 登记，
         // 不在本次迭代范围）。遇到只支持 v1/v2 的旧 compositor 会绑定失败；
-        // 若将来要做，应在此按 globals 列表里该 interface 的实际 version 放宽区间。
+        // 若将来要做，应按 globals 列表里该 interface 的实际 version 放宽区间。
         //
         // 版本 3 是 wlroots 各 compositor 普遍支持的版本。
         // 若绑定失败，说明当前 compositor 不是 wlroots 系（如 GNOME / KDE），

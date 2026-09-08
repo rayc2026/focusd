@@ -19,7 +19,7 @@ pub struct Focus {
 ///
 /// `run` 是阻塞的：后端自己持有事件循环，通过 channel 把焦点变化推给调用方。
 /// 这样上层（CLI / D-Bus 服务）不需要知道底层是 wlroots、GNOME 还是 KWin。
-pub trait Backend {
+pub trait Backend: Send {
     /// 机器可读标识，取值 "wlroots" | "kde" | "gnome"。
     /// 供 `--backend <id>` 参数与自动探测顺序使用。
     fn id(&self) -> &'static str;
