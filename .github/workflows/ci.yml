@@ -126,6 +126,77 @@ jobs:
             exit 1
           fi
 
+      # serve 模式 + D-Bus 契约断言：
+      # serve 与 busctl 客户端必须共享同一个 session bus——
+      # 用 dbus-run-session 包住整段脚本，两者继承同一 DBUS_SESSION_BUS_ADDRESS。
+      # （sway 在上一个 step 已启动，serve 只作为 Wayland client 连它。）
+      - name: Serve mode + D-Bus assertions (GetFocus / FocusChanged)
+        run: |
+          export WLR_BACKENDS=headless
+          for s in wayland-1 wayland-0; do
+            if [ -S "$XDG_RUNTIME_DIR/$s" ]; then export WAYLAND_DISPLAY=$s; break; fi
+          done
+          echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+
+          dbus-run-session bash -s <<'EOF'
+          set -e
+          export RUST_LOG=debug
+
+          # 1) serve 启动（wlroots 后端连外层的 Sway）
+          ./target/debug/focusd serve --backend wlroots > /tmp/serve.log 2>&1 &
+          SERVE_PID=$!
+          sleep 3
+
+          # 2) 两个 dummy 窗口；后 map 的 win2 拿到焦点
+          ./target/debug/examples/dummy-window --app-id focusd.win1 --title one > /tmp/w1.log 2>&1 &
+          sleep 3
+          ./target/debug/examples/dummy-window --app-id focusd.win2 --title two > /tmp/w2.log 2>&1 &
+          sleep 3
+
+          # 3) GetFocus 应返回当前焦点 app_id
+          echo "=== GetFocus ==="
+          OUT=$(busctl --user call org.focusd.Focus1 /org/focusd/Focus1 org.focusd.Focus1 GetFocus)
+          echo "$OUT"
+          echo "$OUT" | grep -q "focusd.win2" || {
+            echo "FAIL: GetFocus 未返回 focusd.win2"
+            echo "=== serve log ==="; cat /tmp/serve.log
+            kill $SERVE_PID 2>/dev/null || true
+            exit 1
+          }
+          echo "VERIFIED: GetFocus 返回当前焦点 app_id"
+
+          # 4) 监听 FocusChanged 后切窗
+          timeout 15 busctl --user monitor > /tmp/monitor.log 2>&1 &
+          MON_PID=$!
+          sleep 2
+          swaymsg focus left || true
+          sleep 4
+          kill $MON_PID 2>/dev/null || true
+
+          echo "=== monitor 捕获 ==="
+          cat /tmp/monitor.log || true
+          grep -q "FocusChanged" /tmp/monitor.log || {
+            echo "FAIL: 未捕获 FocusChanged 信号"
+            echo "=== serve log ==="; cat /tmp/serve.log
+            kill $SERVE_PID 2>/dev/null || true
+            exit 1
+          }
+          echo "VERIFIED: FocusChanged 信号被外部客户端捕获"
+
+          kill $SERVE_PID 2>/dev/null || true
+          echo "=== serve log ==="
+          cat /tmp/serve.log
+          EOF
+
+          # 5) 无 compositor 时 serve 必须明确报错退出（不挂死）
+          if env -u WAYLAND_DISPLAY ./target/debug/focusd serve --backend wlroots > /tmp/nocomp.log 2>&1; then
+            echo "FAIL: 无 compositor 时 serve 不应成功"
+            exit 1
+          fi
+          echo "=== no-compositor serve log ==="
+          cat /tmp/nocomp.log
+          echo "VERIFIED: 无 compositor 时 serve 明确报错退出"
+
   # 冒烟测试：确认二进制能启动且在没有 wlroots compositor 时给出明确的错误提示，
   # 而不是崩溃或静默挂起。
   smoke:

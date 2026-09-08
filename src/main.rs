@@ -1,6 +1,10 @@
 mod backend;
+mod dbus;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use std::sync::{Arc, RwLock};
+use std::sync::mpsc;
+use backend::Dedup;
 use backend::selector;
 use clap::Parser;
 
@@ -12,6 +16,12 @@ enum Cli {
         /// 输出格式：plain（app_id<TAB>title）或 json
         #[arg(long, default_value = "plain")]
         format: String,
+        /// 手动指定后端（省略则自动探测：wlroots → kde → gnome）
+        #[arg(long)]
+        backend: Option<String>,
+    },
+    /// 以 D-Bus 服务模式常驻：org.focusd.Focus1（GetFocus / FocusChanged）
+    Serve {
         /// 手动指定后端（省略则自动探测：wlroots → kde → gnome）
         #[arg(long)]
         backend: Option<String>,
@@ -31,6 +41,7 @@ fn main() -> Result<()> {
     match cli {
         Cli::Probe { backend } => cmd_probe(backend.as_deref()),
         Cli::Watch { format, backend } => cmd_watch(&format, backend.as_deref()),
+        Cli::Serve { backend } => cmd_serve(backend.as_deref()),
     }
 }
 
@@ -61,7 +72,7 @@ fn cmd_probe(hint: Option<&str>) -> Result<()> {
             if any_ok {
                 let b = selector::select_with(&env, None)?;
                 println!("自动选择: {}（{}）", b.id(), b.name());
-                println!("运行 `focusd watch` 开始监听焦点变化。");
+                println!("运行 `focusd watch` 开始监听焦点变化，或 `focusd serve` 启动 D-Bus 服务。");
             } else {
                 println!("没有可用后端。提示：X11 会话下本工具无意义，请登录 Wayland 会话后重试。");
             }
@@ -76,7 +87,7 @@ fn cmd_watch(format: &str, backend_hint: Option<&str>) -> Result<()> {
     let backend = selector::select(backend_hint)?;
     log::info!("使用后端: {} ({})", backend.id(), backend.name());
 
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = mpsc::channel();
 
     std::thread::spawn(move || {
         if let Err(e) = backend.run(tx) {
@@ -87,7 +98,7 @@ fn cmd_watch(format: &str, backend_hint: Option<&str>) -> Result<()> {
 
     // 去重收敛到主循环一处（Dedup）：后端内部去重只是优化，
     // 对外语义（不重复输出同一快照）由这里保证。
-    let mut dedup = backend::Dedup::new();
+    let mut dedup = Dedup::new();
     for focus in rx {
         let Some(focus) = dedup.install(focus) else {
             continue;
@@ -103,6 +114,59 @@ fn cmd_watch(format: &str, backend_hint: Option<&str>) -> Result<()> {
                 focus.app_id.unwrap_or_else(|| "-".into()),
                 focus.title.unwrap_or_else(|| "-".into())
             ),
+        }
+    }
+    Ok(())
+}
+
+/// serve：D-Bus 服务模式。
+///
+/// 线程模型（架构文档 §4 时序图）：
+/// 后端线程 --mpsc--> serve 主线程（去重 + 写 Arc<RwLock> 状态 + 发信号）
+/// zbus ObjectServer 在自己的内部线程上应答 GetFocus / Kwin.Report。
+fn cmd_serve(backend_hint: Option<&str>) -> Result<()> {
+    let backend = selector::select(backend_hint)?;
+    log::info!("使用后端: {} ({})", backend.id(), backend.name());
+
+    let state = Arc::new(RwLock::new(None::<backend::Focus>));
+    let (tx, rx) = mpsc::channel();
+
+    // 先起 D-Bus：KWin 推送入口必须赶在后端事件流之前就绪。
+    // 失败（无会话总线等）即退出——PRD 验收要求 daemon 不挂死。
+    let conn = dbus::start_serve(Arc::clone(&state), tx.clone())
+        .context("D-Bus 服务启动失败（是否有会话总线？请检查 DBUS_SESSION_BUS_ADDRESS）")?;
+    log::info!("D-Bus 服务就绪: {} @ {}", dbus::BUS_NAME, dbus::PATH);
+
+    std::thread::spawn(move || {
+        if let Err(e) = backend.run(tx) {
+            log::error!("后端退出: {:#}", e);
+            std::process::exit(1);
+        }
+    });
+
+    let mut dedup = Dedup::new();
+    for focus in rx {
+        let Some(focus) = dedup.install(focus) else {
+            continue;
+        };
+        // 先更新状态、后发信号：保证信号订阅者随后调 GetFocus 一定看到新值。
+        *state.write().expect("state RwLock 中毒") = Some(focus.clone());
+        let (app_id, title) = (
+            focus.app_id.unwrap_or_default(),
+            focus.title.unwrap_or_default(),
+        );
+        // blocking::Connection::emit_signal 是 zbus 5 的同步发射路径，
+        // 与架构图的 SignalContext + emit 等效（同一 signal 消息）。
+        if let Err(e) = conn.emit_signal(
+            None::<&str>,
+            dbus::PATH,
+            dbus::IFACE_FOCUS,
+            "FocusChanged",
+            &(app_id, title),
+        ) {
+            log::warn!("FocusChanged 信号发射失败: {e}");
+        } else {
+            log::debug!("serve: FocusChanged 已发射: {app_id} / {title}");
         }
     }
     Ok(())
