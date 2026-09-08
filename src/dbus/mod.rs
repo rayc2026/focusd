@@ -2,7 +2,7 @@
 //!
 //! 一个 zbus blocking connection 同时承担两个角色（见架构文档 §1.2）：
 //! - **server**：`org.focusd.Focus1.GetFocus()` 返回当前焦点快照；
-//!   `org.focusd.Focus1.Kwin.Report()` 是 KWin 脚本的推送入口（T03 启用）；
+//!   `org.focusd.Focus1.Kwin.Report()` 是 KWin 脚本的推送入口（KDE 后端）；
 //! - **signal 源**：焦点真正变化（去重后）由 serve 主循环发 `FocusChanged`。
 //!
 //! 线程模型：ObjectServer 由 zbus 内部线程驱动，主循环独占写
@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use anyhow::Result;
 use zbus::interface;
 
-use crate::backend::Focus;
+use crate::backend::{Focus, empty_to_none};
 
 /// 总线名。未来如需 fd.o namespaced 名称，迁移到 `io.github.rayc2026.focusd`
 /// （见 PRD 待确认问题 1，docs/dbus.md 有迁移说明）。
@@ -25,8 +25,7 @@ pub const BUS_NAME: &str = "org.focusd.Focus1";
 pub const PATH: &str = "/org/focusd/Focus1";
 /// 焦点查询接口名。
 pub const IFACE_FOCUS: &str = "org.focusd.Focus1";
-/// KWin 脚本推送接口名（T03 的 KdeBackend / KWin script 依赖此约定）。
-#[allow(dead_code)]
+/// KWin 脚本推送接口名（KdeBackend 与 packaging/kde 的脚本依赖此约定）。
 pub const IFACE_KWIN: &str = "org.focusd.Focus1.Kwin";
 
 /// `org.focusd.Focus1`：对外只读的焦点快照。
@@ -65,8 +64,8 @@ pub struct KwinReportIface {
 impl KwinReportIface {
     fn report(&self, app_id: &str, title: &str) {
         let focus = Focus {
-            app_id: non_empty(app_id),
-            title: non_empty(title),
+            app_id: empty_to_none(app_id),
+            title: empty_to_none(title),
         };
         // 对端（主循环）还在就一定发得出去；发不出去也只是丢一次推送，
         // 不应让 D-Bus 方法报错打挂 KWin 侧脚本。
@@ -76,16 +75,7 @@ impl KwinReportIface {
     }
 }
 
-/// D-Bus 空串 → `None`：KWin 对"无窗口"发空串，focusd 内部统一用 `Option`。
-fn non_empty(s: &str) -> Option<String> {
-    if s.is_empty() {
-        None
-    } else {
-        Some(s.to_string())
-    }
-}
-
-/// 组装 D-Bus 服务：session bus 连接 + bus name + 两个接口注册。
+/// 组装完整 D-Bus 服务：session bus 连接 + bus name + 两个接口注册。
 ///
 /// 任何一步失败都直接返回 Err（serve 启动失败要明确退出，不重试不挂死）。
 /// 返回的 `Connection` 必须由调用方保活——它撑着 ObjectServer 的内部线程。
@@ -101,13 +91,13 @@ pub fn start_serve(
     Ok(conn)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn non_empty_空串映射为none() {
-        assert_eq!(non_empty(""), None);
-        assert_eq!(non_empty("firefox"), Some("firefox".to_string()));
-    }
+/// 仅注册 Kwin 推送入口（`focusd watch --backend kde` 的 watch 模式）：
+/// 该模式下没有 serve 主循环与状态中心，但 KWin 脚本的推送仍需有人接收。
+/// `FocusIface` / FocusChanged 属于 serve 语义，watch 模式不承诺。
+pub fn start_kwin_report(kwin_tx: Sender<Focus>) -> Result<zbus::blocking::Connection> {
+    let conn = zbus::blocking::connection::Builder::session()?
+        .name(BUS_NAME)?
+        .serve_at(PATH, KwinReportIface { tx: Mutex::new(kwin_tx) })?
+        .build()?;
+    Ok(conn)
 }
