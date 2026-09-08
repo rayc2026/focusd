@@ -20,12 +20,12 @@ use std::sync::mpsc::Sender;
 use anyhow::{bail, Context, Result};
 use zbus::blocking;
 
-use super::selector::{probe_kde, RealProbe};
-use super::{Backend, Focus, empty_to_none};
+use super::selector::{ProbeContext, probe_kde, RealProbe};
+use super::{Backend, Focus};
 
 /// 内嵌的 KWin 脚本，运行时落盘 `$XDG_DATA_HOME/focusd/kwin/main.js`。
 /// 内容与 packaging/kde/org.focusd.kwin（kpackagetool6 手动安装路径）保持一致。
-const KWIN_SCRIPT_JS: &str = include_str!("../../../packaging/kde/org.focusd.kwin/contents/code/main.js");
+const KWIN_SCRIPT_JS: &str = include_str!("../../packaging/kde/org.focusd.kwin/contents/code/main.js");
 
 /// KWin Scripting 的 bus name / 对象路径 / 接口名。
 const KWIN_SERVICE: &str = "org.kde.KWin";
