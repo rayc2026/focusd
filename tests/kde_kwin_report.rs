@@ -36,9 +36,9 @@ fn kwin_report_推送进入通道且同值重发被去重() {
     )
     .expect("创建 KWin 推送代理失败");
 
-    kwin.call("Report", &("firefox", "Mozilla Firefox")).expect("Report 调用失败");
-    kwin.call("Report", &("firefox", "Mozilla Firefox")).expect("Report 调用失败");
-    kwin.call("Report", &("foot", "~")).expect("Report 调用失败");
+    kwin.call::<_, _, ()>("Report", &("firefox", "Mozilla Firefox")).expect("Report 调用失败");
+    kwin.call::<_, _, ()>("Report", &("firefox", "Mozilla Firefox")).expect("Report 调用失败");
+    kwin.call::<_, _, ()>("Report", &("foot", "~")).expect("Report 调用失败");
 
     // 3 次推送 → 3 次入通道；过 Dedup 后应只剩 2 个快照
     let mut dedup = Dedup::new();
@@ -58,7 +58,7 @@ fn kwin_report_推送进入通道且同值重发被去重() {
     assert_eq!(out[1].app_id.as_deref(), Some("foot"));
 
     // 空串推送映射为 None（KWin 对"无窗口"发空串）
-    kwin.call("Report", &("", "")).expect("Report 调用失败");
+    kwin.call::<_, _, ()>("Report", &("", "")).expect("Report 调用失败");
     let focus = rx.recv_timeout(Duration::from_secs(5)).expect("等待空推送超时");
     assert_eq!(focus.app_id, None);
     assert_eq!(focus.title, None);
