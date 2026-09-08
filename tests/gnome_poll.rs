@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use zbus::blocking;
 use zbus::interface;
 
-use focusd::backend::{Dedup, GnomeBackend};
+use focusd::backend::{Backend, Dedup, GnomeBackend};
 
 /// mock 扩展：GetFocus 按预置序列依次返回，超出后停在最后一项。
 /// （真扩展返回的是实时焦点窗口；对轮询后端而言等价。）
