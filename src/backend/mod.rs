@@ -3,6 +3,11 @@ pub mod kde;
 pub mod selector;
 pub mod wlroots;
 
+// 顶层 re-export：调用方（CLI / 测试）可直接 backend::KdeBackend 引用
+pub use gnome::GnomeBackend;
+pub use kde::KdeBackend;
+pub use wlroots::WlrootsBackend;
+
 /// 焦点应用快照。
 ///
 /// 故意只保留两个字段：`app_id` 是 Wayland 原生标识（通常等于 desktop
