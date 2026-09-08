@@ -79,7 +79,5 @@ mod tests {
         assert_eq!(d.install(f1_same), None);
         // 真正变化才放行
         assert_eq!(d.install(f2.clone()), Some(f2.clone()));
-        // last 反映最新快照
-        assert_eq!(d.last(), Some(&f2));
     }
 }

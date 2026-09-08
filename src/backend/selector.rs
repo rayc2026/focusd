@@ -251,7 +251,8 @@ mod tests {
         let err = select_with(&FakeEnv::wlroots_session(), Some("gnome")).unwrap_err();
         assert!(format!("{err:#}").contains("gnome"));
         // wlroots 会话里指定 wlroots：通过
-        let b = select_with(&FakeEnv::wlroots_session(), Some("wlroots")).unwrap();
+        let b = select_with(&FakeEnv::wlroots_session(), Some("wlroots"))
+            .unwrap_or_else(|e| panic!("应选中 wlroots: {e:#}"));
         assert_eq!(b.id(), "wlroots");
     }
 

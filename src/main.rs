@@ -46,13 +46,15 @@ fn cmd_probe(hint: Option<&str>) -> Result<()> {
         None => {
             println!("后端探测结果（顺序 = 自动选择优先级）：");
             let mut any_ok = false;
-            for entry in selector::registry() {
-                match (entry.probe)(&env) {
+            // 用 backends() + Backend::probe() 走后端自身的探测入口，
+            // 与 select_with（selector 纯函数）互为对照，两条路径都不会成为死代码
+            for b in selector::backends() {
+                match b.probe() {
                     Ok(()) => {
-                        println!("  [✓] {:<8} 可用", entry.id);
+                        println!("  [✓] {:<8} 可用", b.id());
                         any_ok = true;
                     }
-                    Err(err) => println!("  [✗] {:<8} {:#}", entry.id, err),
+                    Err(err) => println!("  [✗] {:<8} {:#}", b.id(), err),
                 }
             }
             println!();
