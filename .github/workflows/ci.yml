@@ -104,7 +104,9 @@ jobs:
           echo "=== swaymsg tree (app_id list) ==="
           swaymsg -t get_tree 2>&1 | grep -o '"app_id":"[^"]*"' | sort -u || true
 
-          timeout 25 env RUST_LOG=debug ./target/debug/focusd watch > /tmp/focusd.out 2>&1 &
+          # stdout/stderr 必须分流：RUST_LOG=debug 的日志里恰好含
+          # app_id 字样，混进断言文件会让 grep 假绿（已被证伪过一次）。
+          timeout 25 env RUST_LOG=debug ./target/debug/focusd watch > /tmp/focusd.out 2> /tmp/focusd.err &
           FD_PID=$!
           sleep 4
           swaymsg focus right 2>&1 || true
@@ -113,8 +115,10 @@ jobs:
           sleep 3
           kill $FD_PID 2>/dev/null || true
 
-          echo "=== focusd output ==="
+          echo "=== focusd output (stdout only) ==="
           cat /tmp/focusd.out
+          echo "=== focusd log (stderr) tail ==="
+          tail -5 /tmp/focusd.err || true
           echo "=== line count ==="
           wc -l < /tmp/focusd.out
 
