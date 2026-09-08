@@ -142,31 +142,42 @@ jobs:
           set -e
           export RUST_LOG=debug
 
-          # 1) serve 启动（wlroots 后端连外层的 Sway）
-          ./target/debug/focusd serve --backend wlroots > /tmp/serve.log 2>&1 &
-          SERVE_PID=$!
-          sleep 3
-
-          # 2) 两个 dummy 窗口；后 map 的 win2 拿到焦点
+          # 1) 先起窗口、后起 serve——与上面 watch 断言步的顺序一致：
+          #    serve 连接时从 manager 拿到既有 toplevel 及激活状态（已验证的路径）
           ./target/debug/examples/dummy-window --app-id focusd.win1 --title one > /tmp/w1.log 2>&1 &
           sleep 3
           ./target/debug/examples/dummy-window --app-id focusd.win2 --title two > /tmp/w2.log 2>&1 &
           sleep 3
 
-          # 3) GetFocus 应返回当前焦点 app_id
-          echo "=== GetFocus ==="
-          OUT=$(busctl --user call org.focusd.Focus1 /org/focusd/Focus1 org.focusd.Focus1 GetFocus)
-          echo "$OUT"
+          echo "=== window logs ==="
+          cat /tmp/w1.log /tmp/w2.log || true
+          echo "=== sway tree ==="
+          swaymsg -t get_tree 2>&1 | grep -o '"app_id": *"[^"]*"' | sort -u || true
+
+          ./target/debug/focusd serve --backend wlroots > /tmp/serve.log 2>&1 &
+          SERVE_PID=$!
+          sleep 4
+
+          # 2) GetFocus 轮询断言（焦点事件可能稍慢，最多重试 ~10s）
+          OUT=""
+          for i in $(seq 1 10); do
+            OUT=$(busctl --user call org.focusd.Focus1 /org/focusd/Focus1 org.focusd.Focus1 GetFocus || true)
+            echo "GetFocus try$i: $OUT"
+            echo "$OUT" | grep -q "focusd.win" && break
+            sleep 1
+          done
           echo "$OUT" | grep -q "focusd.win2" || {
             echo "FAIL: GetFocus 未返回 focusd.win2"
+            echo "=== introspect ==="
+            busctl --user introspect org.focusd.Focus1 /org/focusd/Focus1 || true
             echo "=== serve log ==="; cat /tmp/serve.log
             kill $SERVE_PID 2>/dev/null || true
             exit 1
           }
           echo "VERIFIED: GetFocus 返回当前焦点 app_id"
 
-          # 4) 监听 FocusChanged 后切窗
-          timeout 15 busctl --user monitor > /tmp/monitor.log 2>&1 &
+          # 3) 监听 FocusChanged 后切窗
+          ( timeout 15 busctl --user monitor > /tmp/monitor.log 2>&1 ) &
           MON_PID=$!
           sleep 2
           swaymsg focus left || true
