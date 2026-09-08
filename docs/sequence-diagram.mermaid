@@ -1,0 +1,23 @@
+sequenceDiagram
+    participant U as 用户/CLI
+    participant M as main(serve) 主线程
+    participant S as selector
+    participant B as Backend 线程
+    participant Z as zbus ObjectServer(内部线程)
+    participant C as 外部客户端 busctl/Solaar
+    participant K as KWin script / GNOME ext
+
+    U->>M: focusd serve [--backend id]
+    M->>S: select(hint)
+    S-->>M: Box<dyn Backend>（失败则报错列出原因并退出）
+    M->>Z: blocking::connection::Builder.session().name("org.focusd.Focus1").serve_at(/org/focusd/Focus1, FocusIface{state}).serve_at(KwinReportIface{tx}).build()
+    M->>B: thread::spawn(backend.run(tx))
+    loop rx 通道消费（去重点）
+        B-->>M: Focus{app_id,title}（Wayland事件 / KWin.Report / 250ms轮询）
+        M->>M: last != cur ? 写入 Arc<RwLock<state>>
+        M->>C: FocusChanged(app_id, title) 信号（仅在变化时）
+    end
+    C->>Z: org.focusd.Focus1.GetFocus()
+    Z-->>C: (app_id, title)（读 state 快照）
+    K->>Z: org.focusd.Focus1.Kwin.Report(app_id, title)
+    Note over Z,B: KwinReportIface.tx.send → 汇入同一通道

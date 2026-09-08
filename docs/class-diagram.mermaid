@@ -1,0 +1,58 @@
+classDiagram
+    class Focus {
+        <<struct 不变>>
+        +app_id: Option~String~
+        +title: Option~String~
+    }
+
+    class Backend {
+        <<trait>>
+        +id() &'static str
+        +name() &'static str
+        +probe() Result~()~
+        +run(tx Sender~Focus~) Result~()~
+    }
+
+    class WlrootsBackend {
+        +id() "wlroots"
+        +probe() WAYLAND_DISPLAY 已设置?
+        +run(tx) Wayland 事件循环
+    }
+    class KdeBackend {
+        +id() "kde"
+        +probe() KDE_SESSION_VERSION + org.kde.KWin 在线?
+        +run(tx) loadScript + 等 Report 推送
+    }
+    class GnomeBackend {
+        +id() "gnome"
+        +probe() org.focusd.Gnome1 在线?
+        +run(tx) 250ms 轮询 GetFocus
+    }
+    class selector {
+        <<module 纯函数>>
+        +BACKENDS() Vec~Box~dyn Backend~~
+        +select(backend_hint Option~String~) Result~Box~dyn Backend~~~
+    }
+    class FocusIface {
+        <<zbus interface>>
+        -state: Arc~RwLock~Option~Focus~~~
+        +GetFocus() (s app_id, s title)
+    }
+    class KwinReportIface {
+        <<zbus interface>>
+        -tx: Sender~Focus~
+        +Report(app_id s, title s)
+    }
+    class ServeState {
+        -focus: Arc~RwLock~Option~Focus~~~
+        -last: Option~Focus~
+        +install(focus Option~Focus~) bool 去重后写入
+    }
+
+    Backend <|.. WlrootsBackend
+    Backend <|.. KdeBackend
+    Backend <|.. GnomeBackend
+    selector o-- Backend
+    FocusIface o-- ServeState
+    KwinReportIface o-- Focus : tx 推入同一通道
+    ServeState o-- Focus

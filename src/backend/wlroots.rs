@@ -14,6 +14,7 @@ use wayland_protocols_wlr::foreign_toplevel::v1::client::{
     zwlr_foreign_toplevel_manager_v1::{self, ZwlrForeignToplevelManagerV1},
 };
 
+use super::selector::{probe_wlroots, RealProbe};
 use super::{Backend, Focus};
 
 /// zwlr_foreign_toplevel_handle_v1.state 里 activated 的枚举值。
@@ -75,6 +76,10 @@ impl Backend for WlrootsBackend {
             .context("无法初始化 Wayland registry")?;
         let qh = event_queue.handle();
 
+        // TODO(协议版本协商)：固定绑定 3..=3，未做协商（主理人裁定 4 登记，
+        // 不在本次迭代范围）。遇到只支持 v1/v2 的旧 compositor 会绑定失败；
+        // 若将来要做，应在此按 globals 列表里该 interface 的实际 version 放宽区间。
+        //
         // 版本 3 是 wlroots 各 compositor 普遍支持的版本。
         // 若绑定失败，说明当前 compositor 不是 wlroots 系（如 GNOME / KDE），
         // 需要走其它后端。

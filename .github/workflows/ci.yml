@@ -38,17 +38,15 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
-  # 实验性集成测试：在无显示环境下用 headless Sway 验证核心假设——
+  # 集成测试：在无显示环境下用 headless Sway 验证核心假设——
   # 焦点切换时能否稳定输出 app_id。
   # wlroots 支持 headless / x11 backend（WLR_BACKENDS 可选值之一），
   # 因此无需真实显示器即可运行 wlroots 系 compositor。
-  # 设置为 continue-on-error：环境适配存在不确定性，失败不阻塞主流程，
-  # 但一旦成功就能证明核心链路可用。
+  # 已转正为硬性 gate（不再 continue-on-error）：核心链路被破坏必须立刻红。
   integration:
     name: Integration (headless Sway)
     runs-on: ubuntu-latest
     needs: build
-    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4

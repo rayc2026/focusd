@@ -1,21 +1,27 @@
 mod backend;
 
 use anyhow::Result;
-use backend::wlroots::WlrootsBackend;
-use backend::Backend;
+use backend::selector;
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(name = "focusd", about = "Wayland 焦点应用探测（MVP：wlroots 后端）")]
+#[command(name = "focusd", about = "Wayland 焦点应用探测守护进程")]
 enum Cli {
     /// 持续监听焦点变化并打印
     Watch {
         /// 输出格式：plain（app_id<TAB>title）或 json
         #[arg(long, default_value = "plain")]
         format: String,
+        /// 手动指定后端（省略则自动探测：wlroots → kde → gnome）
+        #[arg(long)]
+        backend: Option<String>,
     },
-    /// 打印当前后端能力探测结果后退出（用于确认环境是否支持）
-    Probe,
+    /// 打印后端探测结果后退出（用于确认环境是否支持）
+    Probe {
+        /// 只探测指定后端（如 --backend wlroots）
+        #[arg(long)]
+        backend: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -23,51 +29,78 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli {
-        Cli::Probe => {
-            println!("后端: {}", WlrootsBackend.name());
-            match std::env::var("WAYLAND_DISPLAY") {
-                Ok(v) => println!("WAYLAND_DISPLAY = {}（已设置）", v),
-                Err(_) => {
-                    println!("WAYLAND_DISPLAY 未设置 —— 你不在 Wayland 会话中。");
-                    println!("提示：X11 会话下本工具无意义，请登录 Wayland 会话后重试。");
-                    return Ok(());
-                }
-            }
-            println!("XDG_SESSION_TYPE = {:?}", std::env::var("XDG_SESSION_TYPE").ok());
-            println!("\n运行 `focusd watch` 可验证后端是否可用。");
-            Ok(())
-        }
-
-        Cli::Watch { format } => {
-            let (tx, rx) = std::sync::mpsc::channel();
-
-            std::thread::spawn(move || {
-                if let Err(e) = WlrootsBackend.run(tx) {
-                    log::error!("后端退出: {:#}", e);
-                    std::process::exit(1);
-                }
-            });
-
-            for focus in rx {
-                match format.as_str() {
-                    "json" => println!(
-                        "{{\"app_id\":{}, \"title\":{}}}",
-                        serde_escape(focus.app_id.as_deref()),
-                        serde_escape(focus.title.as_deref())
-                    ),
-                    _ => println!(
-                        "{}\t{}",
-                        focus.app_id.unwrap_or_else(|| "-".into()),
-                        focus.title.unwrap_or_else(|| "-".into())
-                    ),
-                }
-            }
-            Ok(())
-        }
+        Cli::Probe { backend } => cmd_probe(backend.as_deref()),
+        Cli::Watch { format, backend } => cmd_watch(&format, backend.as_deref()),
     }
 }
 
-/// 极简 JSON 字符串转义，避免为 MVP 引入 serde 依赖。
+/// probe：列出全部后端的探测结果（顺序 = 自动选择优先级），
+/// 或用 --backend 只看某一个。始终正常退出，让用户看到完整诊断。
+fn cmd_probe(hint: Option<&str>) -> Result<()> {
+    let env = selector::RealProbe;
+    match hint {
+        Some(id) => {
+            let b = selector::select_with(&env, Some(id))?;
+            println!("后端 `{}` 探测通过：{}", b.id(), b.name());
+        }
+        None => {
+            println!("后端探测结果（顺序 = 自动选择优先级）：");
+            let mut any_ok = false;
+            for entry in selector::registry() {
+                match (entry.probe)(&env) {
+                    Ok(()) => {
+                        println!("  [✓] {:<8} 可用", entry.id);
+                        any_ok = true;
+                    }
+                    Err(err) => println!("  [✗] {:<8} {:#}", entry.id, err),
+                }
+            }
+            println!();
+            if any_ok {
+                let b = selector::select_with(&env, None)?;
+                println!("自动选择: {}（{}）", b.id(), b.name());
+                println!("运行 `focusd watch` 开始监听焦点变化。");
+            } else {
+                println!("没有可用后端。提示：X11 会话下本工具无意义，请登录 Wayland 会话后重试。");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// watch：选定后端 → 后端线程跑事件循环 → 主线程打印。
+/// 输出格式与 MVP 完全一致，避免破坏已有消费者。
+fn cmd_watch(format: &str, backend_hint: Option<&str>) -> Result<()> {
+    let backend = selector::select(backend_hint)?;
+    log::info!("使用后端: {} ({})", backend.id(), backend.name());
+
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        if let Err(e) = backend.run(tx) {
+            log::error!("后端退出: {:#}", e);
+            std::process::exit(1);
+        }
+    });
+
+    for focus in rx {
+        match format {
+            "json" => println!(
+                "{{\"app_id\":{}, \"title\":{}}}",
+                serde_escape(focus.app_id.as_deref()),
+                serde_escape(focus.title.as_deref())
+            ),
+            _ => println!(
+                "{}\t{}",
+                focus.app_id.unwrap_or_else(|| "-".into()),
+                focus.title.unwrap_or_else(|| "-".into())
+            ),
+        }
+    }
+    Ok(())
+}
+
+/// 极简 JSON 字符串转义，避免引入 serde 依赖。
 fn serde_escape(s: Option<&str>) -> String {
     match s {
         None => "null".to_string(),
