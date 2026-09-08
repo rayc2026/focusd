@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Id": "org.focusd.kwin",
+        "Name": "focusd",
+        "Description": "把当前焦点窗口（resourceClass + caption）经 D-Bus 推送给 focusd 守护进程",
+        "ServiceTypes": [
+            "KWin/Script"
+        ],
+        "Icon": "preferences-desktop-focus",
+        "Version": "0.1.0",
+        "License": "MIT"
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js"
+}
