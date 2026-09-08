@@ -83,7 +83,13 @@ fn cmd_watch(format: &str, backend_hint: Option<&str>) -> Result<()> {
         }
     });
 
+    // 去重收敛到主循环一处（Dedup）：后端内部去重只是优化，
+    // 对外语义（不重复输出同一快照）由这里保证。
+    let mut dedup = backend::Dedup::new();
     for focus in rx {
+        let Some(focus) = dedup.install(focus) else {
+            continue;
+        };
         match format {
             "json" => println!(
                 "{{\"app_id\":{}, \"title\":{}}}",

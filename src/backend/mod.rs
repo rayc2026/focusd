@@ -60,11 +60,6 @@ impl Dedup {
         self.last = Some(focus.clone());
         Some(focus)
     }
-
-    /// 当前最后一次快照（不含未 install 的中间态）。
-    pub fn last(&self) -> Option<&Focus> {
-        self.last.as_ref()
-    }
 }
 
 #[cfg(test)]
@@ -83,7 +78,7 @@ mod tests {
         // 同值重发被去重
         assert_eq!(d.install(f1_same), None);
         // 真正变化才放行
-        assert_eq!(d.install(f2.clone()), Some(f2));
+        assert_eq!(d.install(f2.clone()), Some(f2.clone()));
         // last 反映最新快照
         assert_eq!(d.last(), Some(&f2));
     }

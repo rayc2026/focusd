@@ -51,7 +51,15 @@ impl ProbeContext for RealProbe {
                 return false;
             }
         };
-        match proxy.name_has_owner(name) {
+        // zbus 5 的 fdo 方法签名收 BusName<'_>（非 &str 泛型转换），需显式转换
+        let bus_name = match zbus::names::BusName::try_from(name) {
+            Ok(bn) => bn,
+            Err(e) => {
+                log::debug!("probe: 非法 bus name `{name}`（{e}），视为不在线");
+                return false;
+            }
+        };
+        match proxy.name_has_owner(bus_name) {
             Ok(v) => v,
             Err(e) => {
                 log::debug!("probe: name_has_owner({name}) 失败（{e}），视为不在线");
@@ -206,13 +214,16 @@ mod tests {
 
     #[test]
     fn wlroots会话自动选中wlroots() {
-        let b = select_with(&FakeEnv::wlroots_session(), None).expect("应选中 wlroots");
+        // Ok 值是 Box<dyn Backend>（无 Debug），不能用 expect，需 panic 转换
+        let b = select_with(&FakeEnv::wlroots_session(), None)
+            .unwrap_or_else(|e| panic!("应选中 wlroots: {e:#}"));
         assert_eq!(b.id(), "wlroots");
     }
 
     #[test]
     fn kde会话自动选中kde() {
-        let b = select_with(&FakeEnv::kde_session(), None).expect("应选中 kde");
+        let b = select_with(&FakeEnv::kde_session(), None)
+            .unwrap_or_else(|e| panic!("应选中 kde: {e:#}"));
         assert_eq!(b.id(), "kde");
     }
 
