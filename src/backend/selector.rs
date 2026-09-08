@@ -229,7 +229,11 @@ mod tests {
 
     #[test]
     fn 全空环境报错并聚合各后端原因() {
-        let err = select_with(&FakeEnv::empty(), None).unwrap_err();
+        // Err 值提取也不能用 unwrap_err（Ok 侧 Box<dyn Backend> 无 Debug）
+        let err = match select_with(&FakeEnv::empty(), None) {
+            Err(e) => e,
+            Ok(_) => panic!("全空环境应失败"),
+        };
         let msg = format!("{err:#}");
         // 三条原因都要在，用户才知道差什么
         assert!(msg.contains("wlroots"), "缺 wlroots 原因: {msg}");
@@ -239,7 +243,10 @@ mod tests {
 
     #[test]
     fn 指定不存在的后端报错并列出可用项() {
-        let err = select_with(&FakeEnv::empty(), Some("cosmic")).unwrap_err();
+        let err = match select_with(&FakeEnv::empty(), Some("cosmic")) {
+            Err(e) => e,
+            Ok(_) => panic!("未知后端应失败"),
+        };
         let msg = format!("{err:#}");
         assert!(msg.contains("cosmic"), "应提到未知后端: {msg}");
         assert!(msg.contains("wlroots, kde, gnome"), "应列出可用项: {msg}");
@@ -248,7 +255,10 @@ mod tests {
     #[test]
     fn 指定后端强校验探测() {
         // wlroots 会话里指定 gnome：探测必须失败（扩展不在线）
-        let err = select_with(&FakeEnv::wlroots_session(), Some("gnome")).unwrap_err();
+        let err = match select_with(&FakeEnv::wlroots_session(), Some("gnome")) {
+            Err(e) => e,
+            Ok(_) => panic!("wlroots 会话指定 gnome 应失败"),
+        };
         assert!(format!("{err:#}").contains("gnome"));
         // wlroots 会话里指定 wlroots：通过
         let b = select_with(&FakeEnv::wlroots_session(), Some("wlroots"))
