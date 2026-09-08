@@ -53,14 +53,17 @@ impl State {
     }
 
     /// 只在焦点真正发生变化时推送，避免刷屏。
+    ///
+    /// 注意：焦点消失（最后一个窗口关闭、current() 返回 `None`）**同样要
+    /// 推送**——`Focus` 的 app_id/title 均为 `None`，下游 serve 的
+    /// GetFocus 会返回空串（见 docs/dbus.md 契约）。若在此拦截 None，
+    /// 消费方将永远读到陈旧的焦点值（迭代二 QA 发现的 L1 缺陷）。
     fn emit_if_changed(&mut self) {
         let cur = self.current();
         if cur == self.last {
             return;
         }
-        if let Some(f) = &cur {
-            let _ = self.tx.send(f.clone());
-        }
+        let _ = self.tx.send(cur.clone().unwrap_or_default());
         self.last = cur;
     }
 }
@@ -216,5 +219,52 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for State {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::Focus;
+
+    /// L1 回归测试：焦点消失（最后一个窗口关闭）时必须推送 None 快照。
+    /// 此前 emit_if_changed 用 `if let Some` 拦截了 None，导致 serve 的
+    /// GetFocus 永远返回陈旧值（迭代二 QA 报告遗留问题 L1）。
+    #[test]
+    fn 焦点消失时也推送none快照() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut state = State {
+            toplevels: HashMap::new(), // 空表 → current() 为 None
+            tx,
+            last: Some(Focus {
+                app_id: Some("focusd.win1".into()),
+                title: Some("one".into()),
+            }),
+        };
+
+        state.emit_if_changed();
+
+        let received = rx
+            .try_recv()
+            .expect("焦点消失时必须推送快照（L1 回归）");
+        assert_eq!(received, Focus::default());
+        assert_eq!(state.last, None);
+    }
+
+    #[test]
+    fn 无变化时不推送() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut state = State {
+            toplevels: HashMap::new(),
+            tx,
+            last: None, // 与 current()（None）相同 → 无变化
+        };
+
+        state.emit_if_changed();
+
+        assert!(
+            rx.try_recv().is_err(),
+            "无变化时不应推送"
+        );
     }
 }
