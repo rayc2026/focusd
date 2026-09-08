@@ -44,12 +44,10 @@ impl Backend for GnomeBackend {
             .context("无法连接会话总线（GNOME 后端需要 D-Bus）")?;
         let proxy = blocking::Proxy::new(&conn, GNOME_BUS_NAME, GNOME_PATH, GNOME_IFACE)
             .with_context(|| {
-                format!(
-                    "无法创建 Shell 扩展代理。请安装扩展：\
-                     将 packaging/gnome/focusd@rayc2026.github.io/ 复制到 \
-                     ~/.local/share/gnome-shell/extensions/，重载 Shell 后 \
-                     gnome-extensions enable focusd@rayc2026.github.io"
-                )
+                "无法创建 Shell 扩展代理。请安装扩展：\
+                 将 packaging/gnome/focusd@rayc2026.github.io/ 复制到 \
+                 ~/.local/share/gnome-shell/extensions/，重载 Shell 后 \
+                 gnome-extensions enable focusd@rayc2026.github.io"
             })?;
 
         let poll = poll_interval();
