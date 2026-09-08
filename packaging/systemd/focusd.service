@@ -1,0 +1,17 @@
+[Unit]
+Description=focusd - focused-application detection daemon for Wayland
+# 随图形会话启停：graphical-session.target 由桌面会话管理器在登录后拉起
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+# 按安装路径调整；cargo 默认装到 ~/.cargo/bin
+ExecStart=%h/.cargo/bin/focusd serve
+# serve 的日志走 stderr（journald 收集），stdout 仅用于 CLI 人类输出
+Environment=RUST_LOG=info
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target
