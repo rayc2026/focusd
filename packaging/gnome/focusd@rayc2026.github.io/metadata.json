@@ -1,0 +1,12 @@
+{
+    "uuid": "focusd@rayc2026.github.io",
+    "name": "focusd",
+    "description": "把当前焦点窗口（WM_CLASS + title）通过 D-Bus 暴露给 focusd 守护进程",
+    "url": "https://github.com/rayc2026/focusd",
+    "shell-version": [
+        "45",
+        "46",
+        "47",
+        "48"
+    ]
+}
