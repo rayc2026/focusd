@@ -1,11 +1,8 @@
-mod backend;
-mod dbus;
-
 use anyhow::{Context, Result};
-use std::sync::{Arc, RwLock};
+use focusd::backend::{self, Dedup, selector};
+use focusd::dbus;
 use std::sync::mpsc;
-use backend::Dedup;
-use backend::selector;
+use std::sync::{Arc, RwLock};
 use clap::Parser;
 
 #[derive(Parser)]
