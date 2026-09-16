@@ -418,7 +418,7 @@ impl LogThrottle {
         self.attempts = self.attempts.saturating_add(1);
         let first = self.attempts == 1;
         let tier_climb = step > self.last_step && step <= TIER_CLIMB_MAX_STEP;
-        let heartbeat = self.attempts % 10 == 0;
+        let heartbeat = self.attempts.is_multiple_of(10);
         self.last_step = step;
 
         if first || tier_climb || heartbeat {
