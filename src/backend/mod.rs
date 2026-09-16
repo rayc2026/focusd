@@ -1,11 +1,16 @@
 pub mod gnome;
 pub mod kde;
+pub mod reconnect;
 pub mod selector;
 pub mod wlroots;
 
 // 顶层 re-export：调用方（CLI / 测试）可直接 backend::KdeBackend 引用
 pub use gnome::GnomeBackend;
 pub use kde::KdeBackend;
+pub use reconnect::{
+    Backoff, ConnectMode, Connector, DiscoveryFailure, LogThrottle, RealSleeper, ReconnectConfig,
+    Session, Sleeper, Supervisor,
+};
 pub use wlroots::WlrootsBackend;
 
 /// 焦点应用快照。
