@@ -259,7 +259,7 @@ impl Connector for WlConnector {
 /// 1. 重读 `WAYLAND_DISPLAY`（绝对路径直接用；相对名拼到 runtime dir 下）；
 /// 2. 扫描 runtime dir 下 `wayland-*`，按 **mtime 倒序**
 ///    （SIGKILL 会留下残留 socket 文件，新 compositor 必然换号，
-///     `wayland-1` 残留 → 新实例只能用 `wayland-2`，故必须扫描而非只认 env）。
+///    `wayland-1` 残留 → 新实例只能用 `wayland-2`，故必须扫描而非只认 env）。
 ///
 /// 不用 inotify 监听目录：常驻进程不值得为此背一个监听子系统，
 /// 2s 级探测已够（且 CPU 开销可忽略）。
@@ -323,7 +323,8 @@ fn scan_wayland_sockets(dir: &Path) -> Vec<PathBuf> {
             .unwrap_or(SystemTime::UNIX_EPOCH);
         found.push((mtime, path));
     }
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    // Reverse：mtime 倒序，新 compositor 的 socket 更新。
+    found.sort_by_key(|a| std::cmp::Reverse(a.0));
     found.into_iter().map(|(_, p)| p).collect()
 }
 
