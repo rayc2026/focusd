@@ -199,10 +199,9 @@ fn kwin_健康检测_已加载不重复加载_失效自动重注册_消失重现
         "isScriptLoaded=true 时不应再调 loadScript（旧实现会对 kpackagetool6 装过的实例误报失败）"
     );
     let probes = st.probes.lock().expect("probes 锁").clone();
-    assert!(probes.contains(&PLUGIN_NAME.to_string()), "应探测 pluginName `{PLUGIN_NAME}`");
     assert!(
-        probes.contains(&PKG_PLUGIN_ID.to_string()),
-        "应双名探测 `{PKG_PLUGIN_ID}`（kpackagetool6 的 KPlugin.Id，见架构 U2）"
+        probes.contains(&PLUGIN_NAME.to_string()),
+        "应探测 pluginName `{PLUGIN_NAME}`（探测记录: {probes:?}）"
     );
 
     // ---- ② 起健康循环：先占住 org.focusd.Focus1，让 run_with 走 serve 分支 ----
@@ -214,6 +213,18 @@ fn kwin_健康检测_已加载不重复加载_失效自动重注册_消失重现
         let _ = KdeBackend.run_with(tx, ctl);
     });
     assert_eq!(st.loads.load(Ordering::SeqCst), 0, "启动期已加载则不应重复加载");
+    // 启动装载只在第一个名命中时就返回；**健康检测**的 health() 每周期都会
+    // 把两个名都问一遍（U2：kpackagetool6 装的实例只认 `org.focusd.kwin`）。
+    assert!(
+        wait_until(
+            || {
+                let p = st.probes.lock().expect("probes 锁").clone();
+                p.contains(&PLUGIN_NAME.to_string()) && p.contains(&PKG_PLUGIN_ID.to_string())
+            },
+            10,
+        ),
+        "健康检测应双名探测 `{PLUGIN_NAME}` 与 `{PKG_PLUGIN_ID}`（见架构 U2）"
+    );
 
     // ---- ③ 脚本失效 → 自动重新注册（核心：无需重启 focusd）----
     rec.lock().expect("records 锁").clear();
