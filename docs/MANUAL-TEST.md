@@ -19,7 +19,8 @@
 | K6 | `./target/release/focusd serve --backend kde` 后<br>`busctl --user call org.focusd.Focus1 /org/focusd/Focus1 org.focusd.Focus1 GetFocus` | 返回当前焦点 resourceClass/标题 | ☐ |
 | K7 | serve 运行中切窗，`gdbus monitor --session --dest org.focusd.Focus1` | 收到 `FocusChanged`，与实际切换一致 | ☐ |
 | K8 | `busctl --user call org.focusd.Focus1 /org/focusd/Focus1 org.focusd.Focus1.Kwin Report test.app "测试"`（serve 运行中） | serve 日志出现去重后的焦点变化 | ☐ |
-| K9 | `killall focusd` 后重启 KWin（`qdbus org.kde.KWin /KWin reconfigure` 或注销重登） | 已知限制：脚本不自动恢复，需重启 focusd——确认文档描述与行为一致 | ☐ |
+| K9 | serve **保持运行**，重启 KWin（`qdbus org.kde.KWin /KWin reconfigure` 或 `kwin_wayland --replace`；**不要**重启 focusd） | ≤ `FOCUSD_KWIN_HEALTH_MS`（默认 10s）内自动重新注册脚本并恢复上报：日志出现 `RUST_LOG=info` 下的「KWin 脚本已自动重新注册…**无需重启 focusd**」与「KWin 脚本已恢复在线」；**降级期间** `GetFocus` 返回 `ss "" ""` 且收到一次 `FocusChanged("","")`；随后补推当前焦点（不等用户切窗） | ☐ |
+| K9b | 同上，但先让自动重注册**必然失败**（如在 系统设置 → 窗口管理 → KWin 脚本 里禁用 focusd，或临时破坏 `$XDG_DATA_HOME/focusd/kwin/main.js`） | 持续上报无焦点（`GetFocus` → `ss "" ""`）；`RUST_LOG=debug` 下出现 WARN，文案含「系统设置 → 窗口管理 → KWin 脚本」与「`kpackagetool6 --type=KWin/Script -i` 重装」和「**无需重启 focusd**」；排除故障后**无需重启 focusd** 即自动恢复 | ☐ |
 | K10 | 手动安装路径：`kpackagetool6 --type=KWin/Script -i packaging/kde/org.focusd.kwin`，在 系统设置→窗口管理→KWin 脚本 启用 focusd | 脚本启用，K3/K7 通过 | ☐ |
 | K11 | 阻断 D-Bus（如临时改名脚本里的 SERVICE）再 `focusd watch --backend kde` | 给出含 kpackagetool6 指引的可操作错误而非挂死 | ☐ |
 
