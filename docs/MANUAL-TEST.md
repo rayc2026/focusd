@@ -2,7 +2,8 @@
 
 > CI 无法运行真实 KDE / GNOME 桌面，KWin Script 与 Shell Extension 的行为
 > 只能用「zbus 起临时 mock 服务」做契约级验证（tests/kde_kwin_report.rs、
-> tests/gnome_poll.rs）。本清单是**人工步骤**，发布前在真机上逐项勾选；
+> tests/kde_kwin_health.rs、tests/gnome_poll.rs、tests/gnome_selfheal.rs）。
+> 本清单是**人工步骤**，发布前在真机上逐项勾选；
 > 任何一项失败不得标记该后端为"已验证"。
 
 ## 1. KDE Plasma（KWin Script 后端）
@@ -36,7 +37,8 @@
 | G4 | `./target/release/focusd watch --backend gnome` | 窗口切换后输出对应 WM_CLASS + 标题 | ☐ |
 | G5 | 切到桌面（无焦点窗口） | 输出两列均为 `-` | ☐ |
 | G6 | `./target/release/focusd serve --backend gnome` + busctl 调 GetFocus / monitor FocusChanged | GetFocus 返回当前 WM_CLASS；切窗后收到 FocusChanged | ☐ |
-| G7 | `gnome-extensions disable focusd@rayc2026.github.io`（serve 运行中） | serve 不崩溃，日志出现轮询失败 debug；重新 enable 后恢复 | ☐ |
+| G7 | 用 `RUST_LOG=debug ./target/release/focusd serve --backend gnome` 启动（**必须显式给 `RUST_LOG`**：`env_logger` 默认级别是 `error`，不写连 `info` 都看不到），然后在 serve 运行中 `gnome-extensions disable focusd@rayc2026.github.io` | serve 不崩溃；**`GetFocus` 返回 `ss "" ""`**（不是上一次的陈旧值——这是本迭代根治的「常驻但说谎」），且 `gdbus monitor --session --dest org.focusd.Focus1` 收到**恰好一次** `FocusChanged("","")`；stderr 出现含 `gnome-extensions enable focusd@rayc2026.github.io` 的 WARN | ☐ |
+| G7b | 接 G7，`gnome-extensions enable focusd@rayc2026.github.io`（**不要**重启 focusd） | ≤1 个轮询周期（`FOCUSD_POLL_MS`，默认 250ms；连续失败达 `FOCUSD_GNOME_FAIL_AFTER` 默认 3 次会重建 Proxy）后恢复上报真实 WM_CLASS，`GetFocus` 回到真实值，并出现 INFO 日志「Shell 扩展已恢复（此前连续失败 N 次…），无需重启 focusd」——**没有这条 INFO 就说明没真正恢复** | ☐ |
 | G8 | Alt-Tab 快速连续切换 | GetFocus/输出最终停留在最后焦点窗口，无错乱 | ☐ |
 | G9 | Wayland（非 X11）会话下完成 G4 | 确认扩展路径在 Wayland 下工作 | ☐ |
 
