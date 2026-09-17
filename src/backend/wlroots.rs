@@ -255,11 +255,10 @@ impl Connector for WlConnector {
 
 /// 重连时的候选 socket 列表（按优先级排序，已去重）。
 ///
-/// 顺序：
-/// 1. 重读 `WAYLAND_DISPLAY`（绝对路径直接用；相对名拼到 runtime dir 下）；
-/// 2. 扫描 runtime dir 下 `wayland-*`，按 **mtime 倒序**
-///    （SIGKILL 会留下残留 socket 文件，新 compositor 必然换号，
-///    `wayland-1` 残留 → 新实例只能用 `wayland-2`，故必须扫描而非只认 env）。
+/// 候选顺序：先重读 `WAYLAND_DISPLAY`（绝对路径直接用；相对名拼到
+/// runtime dir 下）排首位；再扫描 runtime dir 下 `wayland-*`，按 **mtime 倒序**
+/// （SIGKILL 会留下残留 socket 文件，新 compositor 必然换号，
+/// `wayland-1` 残留 → 新实例只能用 `wayland-2`，故必须扫描而非只认 env）。
 ///
 /// 不用 inotify 监听目录：常驻进程不值得为此背一个监听子系统，
 /// 2s 级探测已够（且 CPU 开销可忽略）。
