@@ -294,7 +294,10 @@ jobs:
           fi
 
           # ---- L1（必过）：强杀 compositor，制造残留 socket + 改名 ----
-          BEFORE=$(ls -1 "$XDG_RUNTIME_DIR"/wayland-* 2>/dev/null || true)
+          # KILL_TS 用于 L2 判断新 compositor 是否就绪：它要么新建 wayland-N
+          # （换号），要么删掉残留 socket 后重建同名文件——两种情况下 mtime
+          # 都会变新，比「比较文件名列表」可靠（实测 Sway 走的是重建同名）。
+          KILL_TS=$(( $(date +%s) - 1 ))
           pkill -9 -x sway || true
           # 给「pump 返回 Err → 推无焦点 → 主循环写状态」留出时间
           sleep 3
@@ -329,8 +332,7 @@ jobs:
           # ——这正是 socket 重解析（Q5）要覆盖的场景。
           nohup sway > /tmp/sway2.log 2>&1 &
           for i in $(seq 1 30); do
-            AFTER=$(ls -1 "$XDG_RUNTIME_DIR"/wayland-* 2>/dev/null || true)
-            if [ "$AFTER" != "$BEFORE" ]; then break; fi
+            if find "$XDG_RUNTIME_DIR" -maxdepth 1 -name 'wayland-*' -newermt "@$KILL_TS" 2>/dev/null | grep -q .; then break; fi
             sleep 1
           done
           echo "=== sockets after restart ==="

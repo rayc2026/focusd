@@ -310,7 +310,10 @@ fn scan_wayland_sockets(dir: &Path) -> Vec<PathBuf> {
         let named = path
             .file_name()
             .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with("wayland-"));
+            // wlroots 会额外写一个 `<socket>.lock` 锁文件，名字同样以
+            // `wayland-` 开头。它不是 socket，连它只会白费一次 connect()
+            // 并让「已尝试全部候选」的日志多一坨噪音——显式排除。
+            .is_some_and(|n| n.starts_with("wayland-") && !n.ends_with(".lock"));
         if !named {
             continue;
         }
@@ -540,9 +543,10 @@ mod tests {
     }
 
     #[test]
-    fn 候选socket只认wayland前缀() {
+    fn 候选socket只认wayland前缀且排除lock文件() {
         let rt = temp_runtime("prefix");
         touch(&rt.join("wayland-1"), 100);
+        touch(&rt.join("wayland-1.lock"), 999); // wlroots 的锁文件，不是 socket
         touch(&rt.join("sway-ipc.1.sock"), 999);
         touch(&rt.join("not-wayland"), 999);
         let get = env(vec![("XDG_RUNTIME_DIR".into(), rt.display().to_string())]);
