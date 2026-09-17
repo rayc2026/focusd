@@ -214,9 +214,13 @@ impl KwinCtl {
 /// 同时匹配枚举变体与消息文本：不同 zbus 版本的包装层不完全一致，
 /// 漏判会让「KWin 重启」被当成致命错误直接退出后端线程。
 fn is_service_unknown(e: &zbus::Error) -> bool {
-    matches!(e, zbus::Error::FDO(zbus::fdo::Error::ServiceUnknown(_)))
-        || e.to_string().contains("ServiceUnknown")
-        || e.to_string().contains("was not provided by any")
+    // `Error::FDO` 装的是 `Box<fdo::Error>`（zbus 为避免枚举体积膨胀）。
+    let boxed = match e {
+        zbus::Error::FDO(inner) => matches!(inner.as_ref(), zbus::fdo::Error::ServiceUnknown(_)),
+        _ => false,
+    };
+    let text = e.to_string();
+    boxed || text.contains("ServiceUnknown") || text.contains("was not provided by any")
 }
 
 /// 双名探测的判定（**纯函数**，便于单测覆盖 U2 这条分支）。
