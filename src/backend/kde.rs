@@ -214,7 +214,7 @@ impl KwinCtl {
 /// 同时匹配枚举变体与消息文本：不同 zbus 版本的包装层不完全一致，
 /// 漏判会让「KWin 重启」被当成致命错误直接退出后端线程。
 fn is_service_unknown(e: &zbus::Error) -> bool {
-    matches!(e, zbus::Error::Fdo(zbus::fdo::Error::ServiceUnknown(_)))
+    matches!(e, zbus::Error::FDO(zbus::fdo::Error::ServiceUnknown(_)))
         || e.to_string().contains("ServiceUnknown")
         || e.to_string().contains("was not provided by any")
 }
