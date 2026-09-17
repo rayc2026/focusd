@@ -239,6 +239,127 @@ jobs:
           cat /tmp/nocomp.log
           echo "VERIFIED: 无 compositor 时 serve 明确报错退出"
 
+  # 重连端到端断言（迭代三 T02 / 架构 §5.3）：
+  # 强杀 headless Sway 制造「残留 socket + 新实例换号」，验证 focusd 进程存活、
+  # D-Bus 服务不中断、断连期间上报无焦点（D2 失效即无焦点）；
+  # 再重启 compositor + 起新窗口，验证自动重连恢复。
+  #
+  # 分层断言：L1 必过（失败 exit 1）；L2 尽力——runner 上不稳定时**只允许**
+  # 打印 NOT VERIFIED 并降级登记进 docs/MANUAL-TEST.md，
+  # 严禁 exit 1 / continue-on-error / 关 gate。
+  #
+  # 本 step 必须是 integration job 的最后一步：它会杀掉 sway。
+  - name: Reconnect assertions (kill + restart headless Sway)
+    run: |
+      export WLR_BACKENDS=headless
+      export WLR_LIBINPUT_NO_DEVICES=1
+      export WLR_RENDERER_ALLOW_SOFTWARE=1
+      for s in wayland-1 wayland-0; do
+        if [ -S "$XDG_RUNTIME_DIR/$s" ]; then export WAYLAND_DISPLAY=$s; break; fi
+      done
+      echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+      echo "=== sockets before kill ==="
+      ls -1 "$XDG_RUNTIME_DIR"/wayland-* 2>&1 || true
+
+      dbus-run-session bash -s <<'EOF'
+      set -e
+      export RUST_LOG=debug
+      # 收紧重连参数：让「断连 → 重解析 → 恢复」在 CI 时间预算内可观测。
+      export FOCUSD_RECONNECT_MIN_MS=200
+      export FOCUSD_RECONNECT_MAX_MS=2000
+      export FOCUSD_RECONNECT_DISCOVER_MAX_MS=500
+      export FOCUSD_RECONNECT_JITTER_PCT=0
+
+      # ---- 前置：起窗口 + serve，确认正常上报 ----
+      ./target/debug/examples/dummy-window --app-id focusd.win3 --title three > /tmp/w3.log 2>&1 &
+      W3=$!
+      sleep 3
+      ./target/debug/focusd serve --backend wlroots > /tmp/serve2.log 2>&1 &
+      SERVE=$!
+      sleep 4
+
+      OUT=""
+      for i in $(seq 1 10); do
+        OUT=$(busctl --user call org.focusd.Focus1 /org/focusd/Focus1 org.focusd.Focus1 GetFocus || true)
+        echo "precondition try$i: $OUT"
+        if echo "$OUT" | grep -q "focusd.win3"; then break; fi
+        sleep 1
+      done
+      if ! echo "$OUT" | grep -q "focusd.win3"; then
+        echo "FAIL: 重连测试前置条件未满足（serve 初始未上报 focusd.win3）"
+        echo "=== w3.log ==="; cat /tmp/w3.log || true
+        echo "=== serve2 log ==="; cat /tmp/serve2.log || true
+        kill $SERVE $W3 2>/dev/null || true
+        exit 1
+      fi
+
+      # ---- L1（必过）：强杀 compositor，制造残留 socket + 改名 ----
+      BEFORE=$(ls -1 "$XDG_RUNTIME_DIR"/wayland-* 2>/dev/null || true)
+      pkill -9 -x sway || true
+      # 给「pump 返回 Err → 推无焦点 → 主循环写状态」留出时间
+      sleep 3
+      if ! kill -0 $SERVE; then
+        echo "FAIL: compositor 被 kill 后 serve 进程不应退出"
+        echo "=== serve2 log ==="; cat /tmp/serve2.log || true
+        exit 1
+      fi
+      if ! busctl --user introspect org.focusd.Focus1 /org/focusd/Focus1 > /dev/null; then
+        echo "FAIL: 断连期间 D-Bus 服务不应中断"
+        echo "=== serve2 log ==="; cat /tmp/serve2.log || true
+        kill $SERVE 2>/dev/null || true
+        exit 1
+      fi
+      EMPTY=""
+      for i in $(seq 1 10); do
+        EMPTY=$(busctl --user call org.focusd.Focus1 /org/focusd/Focus1 org.focusd.Focus1 GetFocus || true)
+        echo "GetFocus-after-kill try$i: $EMPTY"
+        if echo "$EMPTY" | grep -q '"" ""'; then break; fi
+        sleep 1
+      done
+      if ! echo "$EMPTY" | grep -q '"" ""'; then
+        echo "FAIL: 断连期间 GetFocus 应返回空串（D2 失效即无焦点；返回了陈旧值？）"
+        echo "=== serve2 log ==="; cat /tmp/serve2.log || true
+        kill $SERVE 2>/dev/null || true
+        exit 1
+      fi
+      echo "VERIFIED L1: compositor 被 kill 后 serve 存活 + D-Bus 不中断 + GetFocus 空串"
+
+      # ---- L2（尽力）：重启 compositor + 新窗口，验证自动重连恢复 ----
+      # pkill -9 会留下 wayland-1 残留文件，重启后的 Sway 只能改用新号
+      # ——这正是 socket 重解析（Q5）要覆盖的场景。
+      nohup sway > /tmp/sway2.log 2>&1 &
+      for i in $(seq 1 30); do
+        AFTER=$(ls -1 "$XDG_RUNTIME_DIR"/wayland-* 2>/dev/null || true)
+        if [ "$AFTER" != "$BEFORE" ]; then break; fi
+        sleep 1
+      done
+      echo "=== sockets after restart ==="
+      ls -1 "$XDG_RUNTIME_DIR"/wayland-* 2>&1 || true
+      echo "=== sway2 log ==="
+      tail -20 /tmp/sway2.log 2>&1 || true
+
+      ./target/debug/examples/dummy-window --app-id focusd.win4 --title four > /tmp/w4.log 2>&1 &
+      W4=$!
+      sleep 3
+      OK=""
+      for i in $(seq 1 40); do
+        OK=$(busctl --user call org.focusd.Focus1 /org/focusd/Focus1 org.focusd.Focus1 GetFocus || true)
+        echo "reconnect try$i: $OK"
+        if echo "$OK" | grep -q "focusd.win4"; then break; fi
+        sleep 1
+      done
+      if echo "$OK" | grep -q "focusd.win4"; then
+        echo "VERIFIED L2: 自动重连并恢复上报真实焦点"
+      else
+        echo "NOT VERIFIED L2：runner 上未复现，降级为真机验证项（docs/MANUAL-TEST.md）"
+        echo "（严禁因此关闭 gate 或加 continue-on-error）"
+      fi
+
+      kill $SERVE $W3 $W4 2>/dev/null || true
+      echo "=== w4.log ==="; cat /tmp/w4.log || true
+      echo "=== serve2 log ==="; cat /tmp/serve2.log || true
+      EOF
+
   # 冒烟测试：确认二进制能启动且在没有 wlroots compositor 时给出明确的错误提示，
   # 而不是崩溃或静默挂起。
   smoke:
