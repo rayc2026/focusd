@@ -1,8 +1,10 @@
 //! KDE KWin 脚本**健康检测 + 自动重注册**契约 mock 测试（迭代三 · T03）。
 //!
-//! CI 上没有真 Plasma/KWin，这里起一个 mock `org.kde.KWin`（`/Scripting`
-//! + `/Scripting/Script7`），按脚本驱动 `isScriptLoaded` / `loadScript` 的
-//! 返回值，验证架构 §4.3 的整条链路：
+//! CI 上没有真 Plasma/KWin，这里起一个 mock `org.kde.KWin`，导出 `/Scripting`
+//! 与 `/Scripting/Script7` 两个对象，按脚本驱动 `isScriptLoaded` /
+//! `loadScript` 的返回值，验证架构 §4.3 的整条链路。
+//!
+//! 覆盖点：
 //!
 //! 1. `isScriptLoaded=true` 时**不重复** `loadScript`（幂等，且双名探测）；
 //! 2. 脚本失效 → 健康循环自动 `loadScript` + `Script.run()`（**无需重启 focusd**）；
@@ -112,8 +114,12 @@ fn start_mock(st: &MockState) -> blocking::Connection {
 // 日志捕获：warn 文案是给真机用户的可操作指引，必须可断言
 // ---------------------------------------------------------------------------
 
+/// 捕获到的日志序列（级别 + 文案）。抽成别名是为了压住 clippy 的
+/// `type_complexity`（`Arc<Mutex<Vec<(Level, String)>>>` 内联写出来太深）。
+type Records = Arc<Mutex<Vec<(log::Level, String)>>>;
+
 struct CaptureLogger {
-    records: Arc<Mutex<Vec<(log::Level, String)>>>,
+    records: Records,
 }
 
 impl log::Log for CaptureLogger {
@@ -131,9 +137,8 @@ impl log::Log for CaptureLogger {
     fn flush(&self) {}
 }
 
-fn capture_logs() -> Arc<Mutex<Vec<(log::Level, String)>>> {
-    static CELL: std::sync::OnceLock<Arc<Mutex<Vec<(log::Level, String)>>>> =
-        std::sync::OnceLock::new();
+fn capture_logs() -> Records {
+    static CELL: std::sync::OnceLock<Records> = std::sync::OnceLock::new();
     Arc::clone(CELL.get_or_init(|| {
         let rec = Arc::new(Mutex::new(Vec::new()));
         // 只装一次；若被人抢先则沿用其记录器（本二进制内无其它 logger）。
@@ -144,12 +149,7 @@ fn capture_logs() -> Arc<Mutex<Vec<(log::Level, String)>>> {
 }
 
 /// 轮询等待一条匹配级别与关键字的日志出现。
-fn wait_log(
-    rec: &Arc<Mutex<Vec<(log::Level, String)>>>,
-    level: log::Level,
-    needle: &str,
-    secs: u64,
-) -> bool {
+fn wait_log(rec: &Records, level: log::Level, needle: &str, secs: u64) -> bool {
     let deadline = Instant::now() + Duration::from_secs(secs);
     loop {
         let hit = rec
