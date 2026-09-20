@@ -328,8 +328,9 @@ jobs:
           echo "VERIFIED L1: compositor 被 kill 后 serve 存活 + D-Bus 不中断 + GetFocus 空串"
 
           # ---- L2（尽力）：重启 compositor + 新窗口，验证自动重连恢复 ----
-          # pkill -9 会留下 wayland-1 残留文件，重启后的 Sway 只能改用新号
-          # ——这正是 socket 重解析（Q5）要覆盖的场景。
+          # pkill -9 会留下 wayland-1 残留文件；但 CI 实测重启后的 Sway 会先删残留、
+          # 再重建同名 wayland-1（mtime 变新，上面的 find 据此判定就绪），**走不到换号分支**。
+          # 换号（wayland-1 → wayland-2）场景已如实登记为 MANUAL-TEST W3，需在真机补验。
           nohup sway > /tmp/sway2.log 2>&1 &
           for i in $(seq 1 30); do
             if find "$XDG_RUNTIME_DIR" -maxdepth 1 -name 'wayland-*' -newermt "@$KILL_TS" 2>/dev/null | grep -q .; then break; fi

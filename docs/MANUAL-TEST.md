@@ -57,3 +57,13 @@
 | S1 | `cp packaging/systemd/focusd.service ~/.config/systemd/user/`<br>`systemctl --user daemon-reload`<br>`systemctl --user enable --now focusd` | 服务 active，`journalctl --user -u focusd` 有「D-Bus 服务就绪」 | ☐ |
 | S2 | `busctl --user call org.focusd.Focus1 /org/focusd/Focus1 org.focusd.Focus1 GetFocus` | 正常返回 | ☐ |
 | S3 | `systemctl --user stop focusd` | 总线上 bus name 消失 | ☐ |
+
+## 5. 运行期行为（真机）
+
+> 迭代三「常驻可用性」的运行时表现：CI 无真桌面 / 无锁屏 / 无注销，以下必须在真机勾选。
+
+| # | 步骤 | 预期 | 结果 |
+|---|---|---|---|
+| B1 | 对运行中的 Sway 发 `sway reload`（**不是** `kill -9`） | focusd 不退出，焦点上报短暂中断后自动恢复；日志出现重连 / 恢复，无崩溃 | ☐ |
+| B2 | 锁屏 → 解锁，观察 `gdbus monitor --session --dest org.focusd.Focus1` 的焦点信号序列 | 锁屏期间按 D2 上报无焦点（恰好一次 `FocusChanged("","")`），解锁后恢复真实焦点；**无信号风暴**（每次切换只发射一次 `FocusChanged`，`Dedup` 生效） | ☐ |
+| B3 | 注销前长时间让某后端处于失败态（如禁用 GNOME 扩展），观察 `journalctl --user -u focusd` | `LogThrottle` 生效：首次失败 WARN，之后每 10 次 WARN 一次，其余降级为 DEBUG——不给 journald 添压；恢复后打 INFO「已恢复」 | ☐ |

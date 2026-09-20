@@ -225,7 +225,7 @@ cargo run -- watch   # 切换窗口，观察输出
 
 ## 测试策略
 
-CI（`.github/workflows/ci.yml`，四项 job 全部为硬性 gate）：
+CI（`.github/workflows/ci.yml`，三项 job 全部为硬性 gate）：
 
 | 层 | 位置 | 验证内容 |
 |---|---|---|
@@ -269,6 +269,31 @@ GNOME 需要跑 Shell 扩展、KDE 需要跑 KWin Script，它们的事件模型
 - KDE 后端已支持健康检测 + 自动重注册（T03）：KWin 会话重启后**无需重启 focusd** 即可恢复上报。
 - wlroots 候选 socket 扫描在「多个 wlroots compositor 并存」场景有误连风险（可能连到非预期那个）；缓解：`WAYLAND_DISPLAY` 等 **env 候选永远优先**，且对每个候选先做 `bind(3..=3)` 协议版本校验后才采用（T02）。
 - 首次连接为保持零回归**不走** socket 扫描：因此启动时若 `WAYLAND_DISPLAY` 指向已失效的 socket，会直接报错退出，而不会自动寻找其它可用 socket。
+
+## 重连与自愈（迭代三）
+
+迭代三让 focusd 在「常驻」场景下不丢焦点能力，核心行为：
+
+- **首次连接失败 → 明确报错退出**：启动时若连不上 compositor（如 `WAYLAND_DISPLAY` 指错、缺 `zwlr_foreign_toplevel_manager_v1`），进程直接报错退出，而不是挂一个永远连不上的僵尸进程——这是有意的产品行为（配置错误就该在 systemd 里现形）。为避免零回归，首次连接不走 socket 扫描（见「已知限制」）。
+- **运行中断开 → 自动重连**：wlroots 后端通过指数退避自动重连（退避参数见下表；CI 已断言「强杀 compositor 后 serve 存活 + D-Bus 不中断 + 断连期间 `GetFocus` 返回空串 + 重启后自动恢复」）。
+- **断连期间 → 上报无焦点**：任一后端断连时 `GetFocus` 返回空串、主循环 `Dedup` 保证只发一次 `FocusChanged("","")`，**绝不返回上一次的陈旧值**；恢复后补推当前真实焦点（详见 [docs/dbus.md](docs/dbus.md)）。
+- **KDE / GNOME 自愈，无需重启 focusd**：KDE 靠 `isScriptLoaded` 双名健康检测 + 自动重注册（T03）；GNOME 靠轮询失败计数重建 Proxy（T04）。两者都在进程内完成，恢复后日志打 INFO、不要求重启。
+
+### 配置（环境变量）
+
+以下变量全部以 `FOCUSD_*` 前缀、解析后做 clamp，未设置时取默认值（完整语义见源码 `src/backend/reconnect.rs` 与 `src/backend/{kde,gnome}.rs`）：
+
+| 变量名 | 默认值 | 取值约束（clamp） | 作用 |
+|---|---|---|---|
+| `FOCUSD_RECONNECT_MIN_MS` | 500 | 10–60000 | 退避下界（首次重连等待） |
+| `FOCUSD_RECONNECT_MAX_MS` | 30000 | 10–600000（上限若低于下界则抬平到下界） | 退避上限（普通失败） |
+| `FOCUSD_RECONNECT_FACTOR` | 2.0 | 1.0–10.0 | 指数退避倍率 |
+| `FOCUSD_RECONNECT_JITTER_PCT` | 20 | 0–50 | 抖动百分比（`0`=关闭；CI 单测 / 确定性场景务必设 `0`） |
+| `FOCUSD_RECONNECT_MAX_ATTEMPTS` | 0 | 0–u32::MAX（`0`=无限） | 最大重连次数（常驻语义默认无限） |
+| `FOCUSD_RECONNECT_DISCOVER_MAX_MS` | 2000 | 100–30000 | 「无候选端点」这类廉价探测失败的退避封顶 |
+| `FOCUSD_KWIN_HEALTH_MS` | 10000 | 1000–300000 | KDE 脚本健康检测周期 |
+| `FOCUSD_POLL_MS` | 250 | 20–5000 | GNOME 扩展轮询间隔 |
+| `FOCUSD_GNOME_FAIL_AFTER` | 3 | 1–20 | GNOME 连续轮询失败达此次数后重建 Proxy（自愈） |
 
 ## 许可
 

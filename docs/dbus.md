@@ -120,3 +120,9 @@ busctl --user introspect org.focusd.Focus1 /org/focusd/Focus1
 1. `src/dbus/mod.rs` 中 `BUS_NAME` 常量改名（接口名/路径同步）；
 2. 保留旧 bus name 一段时间做双注册过渡；
 3. 消费方更新 dest 字符串即可（接口签名不变）。
+
+## R6 `GetStatus`（P2 backlog，本迭代不做）
+
+> P2 backlog：将来可能新增只读的 `GetStatus() -> (s state, u32 generation)`
+> （`state ∈ {connected, reconnecting, unavailable}`）以便排障时区分
+> 「真无焦点」与「focusd 正在重连」。届时同样保持 `GetFocus` / `FocusChanged` 不变。
