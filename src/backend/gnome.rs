@@ -109,7 +109,7 @@ impl Backend for GnomeBackend {
                     }
                     // 达阈值重建 Proxy：扩展重新 enable 后 bus name 的属主是
                     // 另一个 unique name，旧 Proxy 可能一直指向已消失的属主。
-                    if fails % after == 0 {
+                    if fails.is_multiple_of(after) {
                         match new_proxy(&conn) {
                             Ok(p) => proxy = p,
                             Err(pe) => log::debug!("Proxy 重建失败（扩展仍未上线）: {pe}"),
