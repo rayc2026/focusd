@@ -10,9 +10,9 @@ Type=simple
 ExecStart=%h/.cargo/bin/focusd serve
 # serve 的日志走 stderr（journald 收集），stdout 仅用于 CLI 人类输出
 Environment=RUST_LOG=info
-# Restart=on-failure 只是进程**崩溃**后的兜底，不是用来掩盖逻辑缺陷的：
-# 连接中断 / compositor 重启应由进程内重连（T01–T04）自愈，
-# 不应靠 systemd 反复拉起一个本可自愈的进程。
+# Restart=on-failure 只是**兜底**（进程真崩了才拉起）；
+# 不得用它掩盖逻辑缺陷——compositor 重启 / display 断开的**进程内自动重连**
+# 才是正道（见 docs/dbus.md 连接中断语义），正常重连不应触发本 restart。
 Restart=on-failure
 RestartSec=3
 
