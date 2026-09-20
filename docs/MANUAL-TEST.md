@@ -48,7 +48,7 @@
 |---|---|---|---|
 | W1 | `focusd watch` 切窗 | 输出 app_id + title（与 CI 断言一致） | ☐ |
 | W2 | `focusd serve` + busctl GetFocus / monitor | 与 CI 集成断言一致 | ☐ |
-| W3 | 真机：`kill -9` 正在运行的 Sway/Hyprland 进程，让其**重启并换成新号 socket**（典型 `wayland-1` → `wayland-2`，旧的 `wayland-1` 残留文件仍在 `$XDG_RUNTIME_DIR`） | focusd **不退出**、自动连上新号 socket 并恢复上报；日志出现重连成功（无需重启 focusd）。**注意**：CI 里重启的 Sway 是删残留后重建**同名** `wayland-1`，走不到换号分支，故本项必须在真机补验 | ☐ |
+| W3 | 真实环境 `kill -9 $(pidof sway)`（或 Hyprland 主进程）杀掉 compositor，让其**重启并换成新号 socket**（旧 `wayland-1` 残留文件仍在，新会话建 `wayland-2`），期间 focusd 全程不重启 | focusd 在 `FOCUSD_RECONNECT_*` 超时内自动重连到新号 socket（`Restart=on-failure` 不应被触发）；`busctl GetFocus` 恢复返回真实焦点，无「僵尸连旧残留 socket」现象。理由：CI 里重启的 Sway 是删残留后重建**同名** `wayland-1`，本「换号」分支未被 CI 覆盖，需真机补证 | ☐ |
 
 ## 4. systemd user unit
 
