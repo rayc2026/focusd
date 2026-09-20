@@ -110,7 +110,7 @@ gnome-extensions enable focusd@rayc2026.github.io
 ### KDE 用户
 
 无需操作——`focusd watch/serve` 启动时会自动通过
-`org.kde.kwin.Scripting.loadScript` 加载脚本（KWin 重启后需重启 focusd）。
+`org.kde.kwin.Scripting.loadScript` 加载脚本（KWin 重启后自动重注册，无需重启 focusd）。
 也可持久安装：`kpackagetool6 --type=KWin/Script -i packaging/kde/org.focusd.kwin`，
 再在 系统设置 → 窗口管理 → KWin 脚本 中启用 focusd。
 
@@ -256,12 +256,19 @@ GNOME 需要跑 Shell 扩展、KDE 需要跑 KWin Script，它们的事件模型
 - [x] **阶段四**：GNOME Shell Extension 后端（真机验证清单待执行）
 - [ ] **阶段五**：对接 OpenLogi / Solaar，解决它们「按应用切换配置」在 Wayland 上的缺口（对接指南已就绪：[docs/integration-guide.md](docs/integration-guide.md)；待 GNOME/KDE 真机验证通过后发起社区对接）
 
+## 版本状态
+
+- **迭代三「常驻可用性」已完成**：T01 wlroots 自动重连 / T02 多 wlroots socket 候选回退 / T03 KDE KWin 脚本健康检测 + 自动重注册 / T04 GNOME 轮询自愈（断连即上报无焦点 + Proxy 重建 + 恢复 INFO）。`cargo clippy --all-targets -D warnings` 零告警，CI 三 job 全绿。
+- **v0.3.0 待发布**（迭代三收口版本）。
+
 ## 已知限制
 
-- 协议版本固定绑定 3，未做版本协商（遇到只支持 v1/v2 的旧 compositor 会失败）
-- KWin 会话重启后脚本不自动恢复，需重启 focusd（serve 常驻场景通常无感）
-- 未处理 compositor 中途重启、display 断开重连
+- 协议版本固定绑定 3，未做版本协商（遇到只支持 v1/v2 的旧 compositor 会失败；属 P2，迭代四再议）
 - 无权限模型：任何能连上同一 Wayland display 的程序都能用本后端（受 compositor 自身策略约束）
+- wlroots 后端已支持 compositor 中途重启、display 断开的**自动重连**（T01）；但**首次连接**失败仍明确报错退出——这是有意的产品行为，而非无限重试。连接中断期间的 D-Bus 语义见 [docs/dbus.md](docs/dbus.md)。
+- KDE 后端已支持健康检测 + 自动重注册（T03）：KWin 会话重启后**无需重启 focusd** 即可恢复上报。
+- wlroots 候选 socket 扫描在「多个 wlroots compositor 并存」场景有误连风险（可能连到非预期那个）；缓解：`WAYLAND_DISPLAY` 等 **env 候选永远优先**，且对每个候选先做 `bind(3..=3)` 协议版本校验后才采用（T02）。
+- 首次连接为保持零回归**不走** socket 扫描：因此启动时若 `WAYLAND_DISPLAY` 指向已失效的 socket，会直接报错退出，而不会自动寻找其它可用 socket。
 
 ## 许可
 
